@@ -1,0 +1,28 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Installer / logs / caches
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# OS-specific cruft
+.DS_Store
+Thumbs.db
+
+# Generated session folders
+Sessions/
