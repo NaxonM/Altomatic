@@ -1,5 +1,3 @@
 """External service integrations."""
 
-from .ai import describe_image
-
-__all__ = ["describe_image"]
+__all__ = []

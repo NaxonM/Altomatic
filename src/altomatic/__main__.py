@@ -1,6 +1,13 @@
-"""Module entry point for running Altomatic with ``python -m altomatic``."""
+"""Module entry point for running Altomatic."""
 
-from .app import run
+if __package__ in {None, ""}:
+    import os
+    import sys
+
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from altomatic.app import run
+else:
+    from .app import run
 
 
 def main() -> None:

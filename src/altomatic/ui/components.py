@@ -11,7 +11,17 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 import pyperclip
 
 from ..config import open_config_folder, save_config
-from ..models import AVAILABLE_MODELS, DEFAULT_MODEL, format_pricing
+from ..models import (
+    AVAILABLE_PROVIDERS,
+    DEFAULT_MODEL,
+    DEFAULT_MODELS,
+    DEFAULT_PROVIDER,
+    format_pricing,
+    get_default_model,
+    get_models_for_provider,
+    get_provider_label,
+    refresh_openrouter_models,
+)
 from ..prompts import get_prompt_template, load_prompts, save_prompts
 from ..utils import get_image_count_in_folder, slugify
 from .themes import PALETTE, apply_theme, apply_theme_to_window
@@ -52,24 +62,41 @@ def update_token_label(state) -> None:
 
 
 def update_model_pricing(state) -> None:
-    if "lbl_model_pricing" in state:
-        model_id = state["openai_model"].get()
-        details = AVAILABLE_MODELS.get(model_id)
-        if details:
-            state["lbl_model_pricing"].config(
-                text=f"Model: {details['label']}\n{format_pricing(model_id)}"
-            )
-        else:
-            state["lbl_model_pricing"].config(text="Model pricing unavailable")
+    if "lbl_model_pricing" not in state:
+        return
+
+    provider_var = state.get("llm_provider")
+    provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
+    model_var = state.get("llm_model")
+    model_id = model_var.get() if model_var is not None else DEFAULT_MODEL
+
+    models = get_models_for_provider(provider)
+    details = models.get(model_id)
+
+    if not details:
+        state["lbl_model_pricing"].config(text="Model pricing unavailable")
+        return
+
+    provider_label = get_provider_label(provider)
+    model_label = details.get("label", model_id)
+    vendor = details.get("vendor")
+    vendor_line = f"\nVendor: {vendor}" if vendor else ""
+    state["lbl_model_pricing"].config(
+        text=f"{provider_label} • {model_label}\n{format_pricing(provider, model_id)}{vendor_line}"
+    )
 
 
 def update_summary(state) -> None:
     if "summary_model" not in state:
         return
 
-    model_id = state["openai_model"].get()
-    model_label = AVAILABLE_MODELS.get(model_id, {}).get("label", model_id)
-    state["summary_model"].set(f"Model: {model_label}")
+    provider_var = state.get("llm_provider")
+    provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
+    model_var = state.get("llm_model")
+    model_id = model_var.get() if model_var is not None else DEFAULT_MODEL
+    models = get_models_for_provider(provider)
+    model_label = models.get(model_id, {}).get("label", model_id)
+    state["summary_model"].set(f"{get_provider_label(provider)}: {model_label}")
 
     prompts = state.get("prompts") or load_prompts()
     prompt_key = state["prompt_key"].get()
@@ -93,9 +120,13 @@ def update_summary(state) -> None:
     if "summary_model" not in state:
         return
 
-    model_id = state["openai_model"].get()
-    model_label = AVAILABLE_MODELS.get(model_id, {}).get("label", model_id)
-    state["summary_model"].set(f"Model: {model_label}")
+    provider_var = state.get("llm_provider")
+    provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
+    model_var = state.get("llm_model")
+    model_id = model_var.get() if model_var is not None else DEFAULT_MODEL
+    models = get_models_for_provider(provider)
+    model_label = models.get(model_id, {}).get("label", model_id)
+    state["summary_model"].set(f"{get_provider_label(provider)}: {model_label}")
 
     prompts = state.get("prompts") or load_prompts()
     prompt_key = state["prompt_key"].get()
@@ -338,10 +369,32 @@ def build_ui(root, user_config):
     if active_prompt not in prompts_data:
         active_prompt = prompt_names[0]
 
-    # Gracefully handle missing or invalid model from config
-    user_model = user_config.get("openai_model", DEFAULT_MODEL)
-    if user_model.lower() not in AVAILABLE_MODELS:
-        user_model = DEFAULT_MODEL
+    provider = user_config.get("llm_provider", DEFAULT_PROVIDER)
+    if provider not in AVAILABLE_PROVIDERS:
+        provider = DEFAULT_PROVIDER
+
+    provider_model_map = {
+        "openai": user_config.get("openai_model", DEFAULT_MODELS["openai"]),
+        "openrouter": user_config.get("openrouter_model", get_default_model("openrouter")),
+    }
+
+    for key, fallback in (
+        ("openai", DEFAULT_MODELS["openai"]),
+        ("openrouter", get_default_model("openrouter")),
+    ):
+        models_for_provider = get_models_for_provider(key)
+        value = provider_model_map.get(key)
+        if value not in models_for_provider:
+            provider_model_map[key] = fallback
+
+    active_model = (
+        user_config.get("llm_model")
+        or provider_model_map.get(provider)
+        or get_default_model(provider)
+    )
+    if active_model not in get_models_for_provider(provider):
+        active_model = get_default_model(provider)
+    provider_model_map[provider] = active_model
 
     # Central state dictionary, passed around to UI functions
     state = {
@@ -353,6 +406,7 @@ def build_ui(root, user_config):
         "custom_output_path": tk.StringVar(value=user_config.get("custom_output_path", "")),
         "output_folder_option": tk.StringVar(value=user_config.get("output_folder_option", "Same as input")),
         "openai_api_key": tk.StringVar(value=user_config.get("openai_api_key", "")),
+        "openrouter_api_key": tk.StringVar(value=user_config.get("openrouter_api_key", "")),
         "filename_language": tk.StringVar(value=user_config.get("filename_language", "English")),
         "alttext_language": tk.StringVar(value=user_config.get("alttext_language", "English")),
         "name_detail_level": tk.StringVar(value=user_config.get("name_detail_level", "Detailed")),
@@ -361,7 +415,10 @@ def build_ui(root, user_config):
         "tesseract_path": tk.StringVar(value=user_config.get("tesseract_path", "")),
         "ocr_language": tk.StringVar(value=user_config.get("ocr_language", "eng")),
         "ui_theme": tk.StringVar(value=user_config.get("ui_theme", "Default Light")),
-        "openai_model": tk.StringVar(value=user_model),
+        "openai_model": tk.StringVar(value=provider_model_map["openai"]),
+        "openrouter_model": tk.StringVar(value=provider_model_map["openrouter"]),
+        "llm_provider": tk.StringVar(value=provider),
+        "llm_model": tk.StringVar(value=active_model),
         "prompt_key": tk.StringVar(value=active_prompt),
         "context_text": tk.StringVar(value=user_config.get("context_text", "")),
         # Ephemeral state
@@ -372,6 +429,7 @@ def build_ui(root, user_config):
         "prompts": prompts_data,
         "prompt_names": prompt_names,
         "temp_drop_folder": None,
+        "provider_model_map": provider_model_map,
         # Summary state
         "summary_model": tk.StringVar(),
         "summary_prompt": tk.StringVar(),
@@ -409,7 +467,31 @@ def build_ui(root, user_config):
         state["custom_output_entry"].config(state="normal" if is_custom else "disabled")
         update_summary(state)
 
-    state["openai_model"].trace_add("write", lambda *_: (update_model_pricing(state), update_summary(state)))
+    def on_model_change(*_):
+        provider_key = state["llm_provider"].get()
+        current_model = state["llm_model"].get()
+        state["provider_model_map"][provider_key] = current_model
+        model_var_key = f"{provider_key}_model"
+        if model_var_key in state:
+            state[model_var_key].set(current_model)
+        update_model_pricing(state)
+        update_summary(state)
+
+    def on_provider_change(*_):
+        selected = state["llm_provider"].get()
+        if selected not in AVAILABLE_PROVIDERS:
+            selected = DEFAULT_PROVIDER
+            state["llm_provider"].set(selected)
+        model_choice = state["provider_model_map"].get(selected) or get_default_model(selected)
+        if model_choice not in get_models_for_provider(selected):
+            model_choice = get_default_model(selected)
+        if state["llm_model"].get() != model_choice:
+            state["llm_model"].set(model_choice)
+        else:
+            on_model_change()
+
+    state["llm_model"].trace_add("write", lambda *_: on_model_change())
+    state["llm_provider"].trace_add("write", lambda *_: on_provider_change())
     state["prompt_key"].trace_add("write", lambda *_: (update_prompt_preview(state), update_summary(state)))
     state["output_folder_option"].trace_add("write", on_output_folder_change)
     state["custom_output_path"].trace_add("write", lambda *_: update_summary(state))
@@ -615,27 +697,46 @@ def _build_tab_prompts_model(frame, state) -> None:
     model_frame.grid(row=0, column=0, columnspan=3, sticky="nsew")
     model_frame.columnconfigure(1, weight=1)
 
-    ttk.Label(model_frame, text="OpenAI API Key:", style="TLabel").grid(
+    ttk.Label(model_frame, text="Provider:", style="TLabel").grid(
         row=0, column=0, sticky="w", padx=5, pady=5
     )
 
-    api_key_frame = ttk.Frame(model_frame, style="Section.TFrame")
-    api_key_frame.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
-    api_key_frame.columnconfigure(0, weight=1)
+    provider_labels = {get_provider_label(pid): pid for pid in AVAILABLE_PROVIDERS}
+    provider_label_var = tk.StringVar(value=get_provider_label(state["llm_provider"].get()))
+    state["provider_label_var"] = provider_label_var
 
-    api_key_entry = ttk.Entry(api_key_frame, textvariable=state["openai_api_key"], show="*", width=50)
-    api_key_entry.grid(row=0, column=0, sticky="ew")
-    state["api_key_entry"] = api_key_entry
-    show_api_key = tk.BooleanVar()
+    ttk.OptionMenu(
+        model_frame,
+        provider_label_var,
+        provider_label_var.get(),
+        *provider_labels.keys(),
+        command=lambda label: state["llm_provider"].set(provider_labels[label]),
+    ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
-    def toggle_api_key():
-        api_key_entry.config(show="" if show_api_key.get() else "*")
+    api_container = ttk.Frame(model_frame, style="Section.TFrame")
+    api_container.grid(row=1, column=0, columnspan=3, sticky="ew")
+    api_container.columnconfigure(1, weight=1)
 
-    ttk.Checkbutton(api_key_frame, text="Show", variable=show_api_key, command=toggle_api_key).grid(
-        row=0, column=1, padx=(5, 0)
+    openai_frame = ttk.Frame(api_container, style="Section.TFrame")
+    openai_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+    openai_frame.columnconfigure(1, weight=1)
+
+    ttk.Label(openai_frame, text="OpenAI API Key:", style="TLabel").grid(
+        row=0, column=0, sticky="w", padx=5, pady=5
+    )
+    openai_entry = ttk.Entry(openai_frame, textvariable=state["openai_api_key"], show="*", width=50)
+    openai_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+    state["openai_api_entry"] = openai_entry
+    show_openai = tk.BooleanVar()
+
+    def _toggle_openai_key() -> None:
+        openai_entry.config(show="" if show_openai.get() else "*")
+
+    ttk.Checkbutton(openai_frame, text="Show", variable=show_openai, command=_toggle_openai_key).grid(
+        row=0, column=2, padx=(5, 0)
     )
 
-    def paste_api_key():
+    def _paste_openai_key() -> None:
         try:
             if content := pyperclip.paste():
                 state["openai_api_key"].set(content)
@@ -645,26 +746,150 @@ def _build_tab_prompts_model(frame, state) -> None:
         except (pyperclip.PyperclipException, tk.TclError):
             set_status(state, "Could not access clipboard.")
 
-    ttk.Button(api_key_frame, text="Paste", command=paste_api_key, style="TButton").grid(
-        row=0, column=2, padx=5
+    ttk.Button(openai_frame, text="Paste", command=_paste_openai_key, style="TButton").grid(
+        row=0, column=3, padx=5
     )
 
-    ttk.Label(model_frame, text="OpenAI Model:", style="TLabel").grid(
-        row=1, column=0, sticky="w", padx=5, pady=5
+    openrouter_frame = ttk.Frame(api_container, style="Section.TFrame")
+    openrouter_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+    openrouter_frame.columnconfigure(1, weight=1)
+
+    ttk.Label(openrouter_frame, text="OpenRouter API Key:", style="TLabel").grid(
+        row=0, column=0, sticky="w", padx=5, pady=5
     )
-    model_labels = {v["label"]: k for k, v in AVAILABLE_MODELS.items()}
-    model_menu = ttk.OptionMenu(
+    openrouter_entry = ttk.Entry(
+        openrouter_frame, textvariable=state["openrouter_api_key"], show="*", width=50
+    )
+    openrouter_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+    state["openrouter_api_entry"] = openrouter_entry
+    show_openrouter = tk.BooleanVar()
+
+    def _toggle_openrouter_key() -> None:
+        openrouter_entry.config(show="" if show_openrouter.get() else "*")
+
+    ttk.Checkbutton(
+        openrouter_frame, text="Show", variable=show_openrouter, command=_toggle_openrouter_key
+    ).grid(row=0, column=2, padx=(5, 0))
+
+    def _paste_openrouter_key() -> None:
+        try:
+            if content := pyperclip.paste():
+                state["openrouter_api_key"].set(content)
+                set_status(state, "API Key pasted from clipboard.")
+            else:
+                set_status(state, "Clipboard is empty.")
+        except (pyperclip.PyperclipException, tk.TclError):
+            set_status(state, "Could not access clipboard.")
+
+    ttk.Button(
+        openrouter_frame, text="Paste", command=_paste_openrouter_key, style="TButton"
+    ).grid(row=0, column=3, padx=5)
+
+    ttk.Label(
+        openrouter_frame,
+        text=(
+            "Free multimodal models are pulled from OpenRouter automatically."
+        ),
+        style="Small.TLabel",
+        wraplength=360,
+        justify="left",
+    ).grid(row=2, column=0, columnspan=4, sticky="w", padx=5, pady=(0, 5))
+
+    ttk.Label(model_frame, text="Model:", style="TLabel").grid(
+        row=2, column=0, sticky="w", padx=5, pady=5
+    )
+
+    model_label_var = tk.StringVar()
+    state["model_label_var"] = model_label_var
+
+    model_menu = ttk.OptionMenu(model_frame, model_label_var, "")
+    model_menu.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+    state["model_option_widget"] = model_menu
+    state["model_option_menu"] = model_menu["menu"]
+    state["openai_section"] = openai_frame
+    state["openrouter_section"] = openrouter_frame
+
+    def _refresh_openrouter_models_ui() -> None:
+        try:
+            refresh_openrouter_models()
+            models = get_models_for_provider("openrouter")
+            current = state["openrouter_model"].get()
+            if current not in models:
+                fallback = get_default_model("openrouter")
+                state["openrouter_model"].set(fallback)
+                if state["llm_provider"].get() == "openrouter":
+                    state["llm_model"].set(fallback)
+            state["provider_model_map"]["openrouter"] = state["openrouter_model"].get()
+            _refresh_model_choices()
+            update_model_pricing(state)
+            update_summary(state)
+            set_status(state, "OpenRouter models refreshed.")
+        except Exception as exc:  # pragma: no cover - network error path
+            set_status(state, f"Could not refresh models: {exc}")
+
+    refresh_button = ttk.Button(
         model_frame,
-        state["openai_model"],
-        AVAILABLE_MODELS[state["openai_model"].get()]["label"],
-        *model_labels.keys(),
-        command=lambda label: state["openai_model"].set(model_labels[label]),
+        text="Refresh free models",
+        command=_refresh_openrouter_models_ui,
+        style="Secondary.TButton",
     )
-    model_menu.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+    refresh_button.grid(row=2, column=2, sticky="e", padx=(5, 0), pady=5)
+    state["refresh_openrouter_button"] = refresh_button
+
+    def _refresh_model_choices() -> None:
+        provider_key = state["llm_provider"].get()
+        models = get_models_for_provider(provider_key)
+        menu = state["model_option_menu"]
+        menu.delete(0, "end")
+
+        if not models:
+            model_label_var.set("No models available")
+            return
+
+        for model_id, info in models.items():
+            label = info.get("label", model_id)
+            menu.add_command(label=label, command=lambda value=model_id: state["llm_model"].set(value))
+
+        current_model = state["llm_model"].get()
+        if current_model not in models:
+            fallback = state["provider_model_map"].get(provider_key) or get_default_model(provider_key)
+            if fallback not in models:
+                fallback = next(iter(models.keys()))
+            state["llm_model"].set(fallback)
+            current_model = fallback
+
+        model_label_var.set(models[current_model].get("label", current_model))
+
+    def _refresh_provider_sections() -> None:
+        provider_key = state["llm_provider"].get()
+        provider_label_var.set(get_provider_label(provider_key))
+        if provider_key == "openrouter":
+            openrouter_frame.grid()
+            openai_frame.grid_remove()
+            state["refresh_openrouter_button"].grid()
+        else:
+            openai_frame.grid()
+            openrouter_frame.grid_remove()
+            state["refresh_openrouter_button"].grid_remove()
+
+    def _sync_model_label(*_) -> None:
+        provider_key = state["llm_provider"].get()
+        models = get_models_for_provider(provider_key)
+        current_model = state["llm_model"].get()
+        model_label_var.set(models.get(current_model, {}).get("label", current_model))
+
+    state["llm_provider"].trace_add(
+        "write", lambda *_: (_refresh_provider_sections(), _refresh_model_choices())
+    )
+    state["llm_model"].trace_add("write", _sync_model_label)
+
+    _refresh_provider_sections()
+    _refresh_model_choices()
+
     state["lbl_model_pricing"] = ttk.Label(
         model_frame, text="", justify="left", style="Small.TLabel"
     )
-    state["lbl_model_pricing"].grid(row=2, column=1, sticky="w", padx=5, pady=(0, 10))
+    state["lbl_model_pricing"].grid(row=3, column=1, sticky="w", padx=5, pady=(0, 10))
 
     # --- Prompt Management ---
     prompt_frame = ttk.Labelframe(frame, text="Prompt", style="Section.TLabelframe", padding=16)

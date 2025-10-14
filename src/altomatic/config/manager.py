@@ -7,7 +7,12 @@ import json
 import os
 from typing import Any
 
-from ..models import DEFAULT_MODEL
+from ..models import (
+    DEFAULT_MODEL,
+    DEFAULT_MODELS,
+    DEFAULT_PROVIDER,
+    get_default_model,
+)
 
 CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".altomatic_config.json")
 SECRET_PREFIX = "ALTOMATIC:"
@@ -16,7 +21,10 @@ SECRET_PREFIX = "ALTOMATIC:"
 DEFAULT_CONFIG: dict[str, Any] = {
     "custom_output_path": "",
     "output_folder_option": "Same as input",
+    "llm_provider": DEFAULT_PROVIDER,
+    "llm_model": DEFAULT_MODEL,
     "openai_api_key": "",
+    "openrouter_api_key": "",
     "window_geometry": "1133x812",
     "filename_language": "English",
     "alttext_language": "English",
@@ -26,7 +34,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tesseract_path": "",
     "ocr_language": "eng",
     "ui_theme": "Default Light",
-    "openai_model": DEFAULT_MODEL,
+    "openai_model": DEFAULT_MODELS["openai"],
+    "openrouter_model": get_default_model("openrouter"),
     "prompt_key": "default",
     "context_text": "",
 }
@@ -57,6 +66,30 @@ def load_config() -> dict[str, Any]:
         config.update(data)
         if config["openai_api_key"]:
             config["openai_api_key"] = _deobfuscate_api_key(config["openai_api_key"])
+        if config.get("openrouter_api_key"):
+            config["openrouter_api_key"] = _deobfuscate_api_key(config["openrouter_api_key"])
+
+        provider = config.get("llm_provider") or DEFAULT_PROVIDER
+        if provider not in DEFAULT_MODELS:
+            provider = DEFAULT_PROVIDER
+        config["llm_provider"] = provider
+
+        if "openrouter_provider" in config:
+            config.pop("openrouter_provider", None)
+
+        if not config.get("openai_model"):
+            config["openai_model"] = DEFAULT_MODELS["openai"]
+        if not config.get("openrouter_model"):
+            config["openrouter_model"] = get_default_model("openrouter")
+
+        if not config.get("llm_model"):
+            config["llm_model"] = config.get(f"{provider}_model", get_default_model(provider))
+
+        if config["llm_model"] not in (
+            config.get(f"{provider}_model"),
+            get_default_model(provider),
+        ):
+            config["llm_model"] = config.get(f"{provider}_model", get_default_model(provider))
 
         legacy_themes = {
             "Light": "Default Light",
@@ -81,6 +114,9 @@ def save_config(state, geometry: str) -> None:
         elif key == "openai_api_key":
             plain = state["openai_api_key"].get()
             data["openai_api_key"] = _obfuscate_api_key(plain)
+        elif key == "openrouter_api_key":
+            plain = state["openrouter_api_key"].get()
+            data["openrouter_api_key"] = _obfuscate_api_key(plain)
         else:
             data[key] = state[key].get()
 

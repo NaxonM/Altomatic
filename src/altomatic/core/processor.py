@@ -6,6 +6,7 @@ import os
 import shutil
 from queue import Queue
 
+from ..models import DEFAULT_PROVIDER, get_provider_label
 from ..services.ai import describe_image
 from ..ui import cleanup_temp_drop_folder
 from ..utils.images import (
@@ -22,13 +23,19 @@ def process_images(state) -> None:
     ui_queue: Queue = state["ui_queue"]
 
     try:
-        api_key = state["openai_api_key"].get().strip()
+        provider_var = state.get("llm_provider")
+        provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
+        if provider not in {"openai", "openrouter"}:
+            provider = DEFAULT_PROVIDER
+
+        api_key_field = "openrouter_api_key" if provider == "openrouter" else "openai_api_key"
+        api_key = state[api_key_field].get().strip() if api_key_field in state else ""
         if not api_key:
             ui_queue.put(
                 {
                     "type": "error",
                     "title": "Missing API Key",
-                    "value": "Please enter your OpenAI API key in the Settings tab.",
+                    "value": f"Please enter your {get_provider_label(provider)} API key in the Settings tab.",
                 }
             )
             return
