@@ -1,6 +1,7 @@
 
 {
     "feature_flags": {
-        "use_pyside6_about_window": true
+        "use_pyside6_about_window": true,
+        "use_pyside6_main_window": true
     }
 }
