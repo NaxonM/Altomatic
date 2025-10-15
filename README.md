@@ -19,7 +19,7 @@ Once downloaded, you can run the application by simply double-clicking the `laun
 
 | Feature | Description |
 | :--- | :--- |
-| 🧠 **AI-Powered Vision** | Utilizes the GPT-4.1-nano vision model for deep image content analysis. |
+| 🧠 **AI-Powered Vision** | Utilizes the GPT-5 and OpenRouter models vision model for deep image content analysis. |
 | 🏷 **Filename Generation** | Creates clean, lowercase, hyphen-separated filenames ideal for SEO and file management. |
 | ♿ **Alt Text Generation** | Produces descriptive, context-aware alt text compliant with accessibility standards. |
 | 🖼️ **OCR Integration** | Optionally uses Tesseract OCR to extract and incorporate text from images into the analysis prompt. |
