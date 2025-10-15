@@ -10,6 +10,8 @@ from typing import Any, Iterable
 
 import requests
 
+from ..utils import configure_global_proxy, get_requests_proxies
+
 CATALOG_URL = "https://openrouter.ai/api/v1/models"
 CATALOG_FILENAME = "openrouter_models.json"
 CACHE_TTL_SECONDS = 24 * 60 * 60  # refresh once per day by default
@@ -132,7 +134,14 @@ def _deserialize(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def fetch_openrouter_models() -> list[OpenRouterModel]:
-    response = requests.get(CATALOG_URL, timeout=45)
+    configure_global_proxy()
+    proxies = get_requests_proxies()
+
+    response = requests.get(
+        CATALOG_URL,
+        timeout=45,
+        proxies=proxies or None,
+    )
     response.raise_for_status()
     payload = response.json()
     models: list[OpenRouterModel] = []

@@ -6,7 +6,10 @@ import json
 from typing import Any
 
 import requests
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ModuleNotFoundError:  # pragma: no cover - optional dependency in frozen build
+    OpenAI = None
 
 from ..models import (
     DEFAULT_MODEL,
@@ -18,7 +21,14 @@ from ..models import (
 )
 from ..prompts import get_prompt_template
 from ..ui import append_monitor_colored, update_token_label
-from ..utils import extract_text_from_image, image_to_base64
+from ..utils import (
+    PreprocessedImage,
+    configure_global_proxy,
+    extract_text_from_image,
+    get_requests_proxies,
+    image_to_base64,
+    preprocess_image_for_llm,
+)
 
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -121,7 +131,12 @@ def _extract_response_text(payload) -> str | None:
     return None
 
 
-def _call_openrouter(api_key: str, payload: dict[str, Any], provider_hint: str | None) -> dict[str, Any]:
+def _call_openrouter(
+    api_key: str,
+    payload: dict[str, Any],
+    provider_hint: str | None,
+    proxies: dict[str, str] | None,
+) -> dict[str, Any]:
     request_payload = dict(payload)
     if provider_hint:
         request_payload = dict(request_payload)
@@ -138,6 +153,7 @@ def _call_openrouter(api_key: str, payload: dict[str, Any], provider_hint: str |
         json=request_payload,
         headers=headers,
         timeout=90,
+        proxies=proxies or None,
     )
 
     try:
@@ -159,6 +175,11 @@ def _call_openrouter(api_key: str, payload: dict[str, Any], provider_hint: str |
 
 
 def describe_image(state, image_path: str) -> dict | None:
+    proxy_enabled = state.get("proxy_enabled").get() if "proxy_enabled" in state else True
+    proxy_override = state.get("proxy_override").get().strip() if "proxy_override" in state else ""
+    configure_global_proxy(enabled=proxy_enabled, override=proxy_override or None, force=False)
+    proxies = get_requests_proxies(enabled=proxy_enabled, override=proxy_override or None)
+
     provider_var = state.get("llm_provider")
     provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
     models = get_models_for_provider(provider)
@@ -202,7 +223,32 @@ def describe_image(state, image_path: str) -> dict | None:
     if vision_detail not in {"low", "high"}:
         vision_detail = "high"
 
-    encoded_image = image_to_base64(image_path)
+    processed_image: PreprocessedImage | None = None
+    try:
+        processed_image = preprocess_image_for_llm(image_path)
+        encoded_image = processed_image.data_url
+
+        savings = processed_image.original_size_bytes - processed_image.processed_size_bytes
+        quality_note = f" q{processed_image.quality}" if processed_image.quality is not None else ""
+        append_monitor_colored(
+            state,
+            (
+                "[IMAGE PREPROCESS] "
+                f"{processed_image.original_dimensions[0]}x{processed_image.original_dimensions[1]}"
+                f" -> {processed_image.processed_dimensions[0]}x{processed_image.processed_dimensions[1]} | "
+                f"{processed_image.original_size_bytes / 1024:.1f}KB"
+                f" -> {processed_image.processed_size_bytes / 1024:.1f}KB "
+                f"({processed_image.format}{quality_note}, savings {max(savings, 0) / 1024:.1f}KB)"
+            ),
+            "debug" if savings <= 0 else "info",
+        )
+    except Exception as compression_error:
+        append_monitor_colored(
+            state,
+            f"[IMAGE PREPROCESS] Failed to compress image: {compression_error}",
+            "warn",
+        )
+        encoded_image = image_to_base64(image_path)
 
     if not prompt_template:
         prompt_template = (
@@ -260,7 +306,7 @@ def describe_image(state, image_path: str) -> dict | None:
                 "response_format": {"type": "json_object"},
             }
 
-            response_payload = _call_openrouter(api_key, payload, provider_hint)
+            response_payload = _call_openrouter(api_key, payload, provider_hint, proxies)
             response_text = _extract_response_text(response_payload)
             usage_data = response_payload.get("usage") if isinstance(response_payload, dict) else None
             if isinstance(usage_data, dict):
@@ -268,6 +314,14 @@ def describe_image(state, image_path: str) -> dict | None:
                 if token_value is not None:
                     total_tokens = int(token_value)
         else:
+            if OpenAI is None:
+                append_monitor_colored(
+                    state,
+                    "[API ERROR:OpenAI] The OpenAI Python package is not available. Install 'openai>=1.0' to enable this provider.",
+                    "error",
+                )
+                return None
+
             payload = {
                 "model": model_id,
                 "input": [

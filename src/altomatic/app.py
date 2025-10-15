@@ -14,6 +14,7 @@ from .core.processor import process_images
 from .ui.components import append_monitor_colored, build_ui, set_status
 from .ui.dragdrop import configure_drag_and_drop
 from .ui.themes import apply_theme
+from .utils import configure_global_proxy, set_proxy_preferences
 
 
 def _scaled_geometry(widget, base_width: int, base_height: int) -> str:
@@ -49,11 +50,17 @@ def run() -> None:
     """Initialize the UI, wire dependencies, and start the main loop."""
     user_config = load_config()
 
+    set_proxy_preferences(
+        user_config.get("proxy_enabled", True),
+        user_config.get("proxy_override", ""),
+    )
+    configure_global_proxy(force=True)
+
     root = TkinterDnD.Tk()
     root.title("Altomatic")
-    stored_geometry = user_config.get("window_geometry", DEFAULT_CONFIG.get("window_geometry", "1133x812"))
-    if stored_geometry == DEFAULT_CONFIG.get("window_geometry", "1133x812"):
-        geometry = _scaled_geometry(root, 1133, 812)
+    stored_geometry = user_config.get("window_geometry", DEFAULT_CONFIG.get("window_geometry", "1185x730"))
+    if stored_geometry == DEFAULT_CONFIG.get("window_geometry", "1185x730"):
+        geometry = _scaled_geometry(root, 1185, 730)
     else:
         geometry = stored_geometry
     root.geometry(geometry)

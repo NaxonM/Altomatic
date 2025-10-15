@@ -9,6 +9,8 @@ from tkinter import ttk
 if os.name == "nt":
     DWMWA_USE_IMMERSIVE_DARK_MODE = 20
     DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
+    DWMWA_CAPTION_COLOR = 35
+    DWMWA_TEXT_COLOR = 36
 
 from tkinterdnd2 import TkinterDnD
 
@@ -20,6 +22,11 @@ def _hex_to_rgb(value: str) -> tuple[int, int, int]:
 
 def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
     return "#" + "".join(f"{channel:02x}" for channel in rgb)
+
+
+def _hex_to_colorref(value: str) -> int:
+    r, g, b = _hex_to_rgb(value)
+    return (b << 16) | (g << 8) | r
 
 
 def _blend(color: str, target: str, amount: float) -> str:
@@ -40,22 +47,40 @@ def _set_titlebar_mode(widget: tk.Misc, palette: dict[str, str]) -> None:
         hwnd = widget.winfo_id()
     except Exception:
         return
-    dark_mode = 1 if _is_dark_palette(palette) else 0
-    value = ctypes.c_int(dark_mode)
-    try:
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
-            ctypes.byref(value),
-            ctypes.sizeof(value),
-        )
-    except Exception:
+    dark_mode = bool(_is_dark_palette(palette))
+    value = ctypes.c_bool(dark_mode)
+    hr = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+        hwnd,
+        DWMWA_USE_IMMERSIVE_DARK_MODE,
+        ctypes.byref(value),
+        ctypes.sizeof(value),
+    )
+    if hr != 0:
         try:
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1,
                 ctypes.byref(value),
                 ctypes.sizeof(value),
+            )
+        except Exception:
+            pass
+
+    if dark_mode:
+        try:
+            caption_color = _hex_to_colorref(palette.get("background", "#1f1f1f"))
+            text_color = _hex_to_colorref(palette.get("foreground", "#f5f5f5"))
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_CAPTION_COLOR,
+                ctypes.byref(ctypes.c_int(caption_color)),
+                ctypes.sizeof(ctypes.c_int),
+            )
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_TEXT_COLOR,
+                ctypes.byref(ctypes.c_int(text_color)),
+                ctypes.sizeof(ctypes.c_int),
             )
         except Exception:
             pass
@@ -120,31 +145,31 @@ def _style_menus(widget: tk.Widget, palette: dict[str, str]) -> None:
 
 PALETTE = {
     "Arctic Light": {
-        "background": "#f8fafc",
+        "background": "#eef2fb",
         "foreground": "#0f172a",
-        "surface": "#ffffff",
-        "surface-2": "#e2e8f0",
-        "primary": "#0ea5e9",
+        "surface": "#f9fbff",
+        "surface-2": "#dce4f5",
+        "primary": "#2563eb",
         "primary-foreground": "#ffffff",
-        "secondary": "#64748b",
+        "secondary": "#4f5d7a",
         "secondary-foreground": "#ffffff",
-        "muted": "#94a3b8",
-        "success": "#10b981",
+        "muted": "#7b8aaf",
+        "success": "#16a34a",
         "warning": "#f59e0b",
         "danger": "#ef4444",
         "info": "#3b82f6",
         "is_dark": False,
     },
     "Midnight": {
-        "background": "#0a0e1a",
+        "background": "#10172a",
         "foreground": "#f1f5f9",
-        "surface": "#141b2d",
-        "surface-2": "#1e293b",
+        "surface": "#192237",
+        "surface-2": "#253149",
         "primary": "#06b6d4",
-        "primary-foreground": "#0a0e1a",
-        "secondary": "#475569",
-        "secondary-foreground": "#f1f5f9",
-        "muted": "#94a3b8",
+        "primary-foreground": "#07121c",
+        "secondary": "#4c5a6f",
+        "secondary-foreground": "#f8fafc",
+        "muted": "#9aa9c5",
         "success": "#22c55e",
         "warning": "#fbbf24",
         "danger": "#f43f5e",
@@ -152,47 +177,47 @@ PALETTE = {
         "is_dark": True,
     },
     "Forest": {
-        "background": "#f0fdf4",
-        "foreground": "#052e16",
-        "surface": "#ffffff",
-        "surface-2": "#d1fae5",
-        "primary": "#059669",
+        "background": "#e7f6ed",
+        "foreground": "#08311f",
+        "surface": "#f8fdf9",
+        "surface-2": "#ccebd8",
+        "primary": "#0d9a6d",
         "primary-foreground": "#ffffff",
-        "secondary": "#047857",
+        "secondary": "#0b7a59",
         "secondary-foreground": "#ffffff",
-        "muted": "#6b7280",
+        "muted": "#6a7c70",
         "success": "#10b981",
         "warning": "#f59e0b",
         "danger": "#dc2626",
-        "info": "#0891b2",
+        "info": "#0f8ba4",
         "is_dark": False,
     },
     "Sunset": {
-        "background": "#1a0f1e",
-        "foreground": "#fef3f2",
-        "surface": "#2d1b2e",
-        "surface-2": "#432837",
-        "primary": "#f97316",
+        "background": "#201425",
+        "foreground": "#fde5e2",
+        "surface": "#302034",
+        "surface-2": "#46304a",
+        "primary": "#fb7d3a",
         "primary-foreground": "#ffffff",
-        "secondary": "#ec4899",
-        "secondary-foreground": "#ffffff",
-        "muted": "#d8b4fe",
+        "secondary": "#f472b6",
+        "secondary-foreground": "#1c0c16",
+        "muted": "#e3c4ff",
         "success": "#84cc16",
-        "warning": "#fbbf24",
-        "danger": "#ef4444",
-        "info": "#c084fc",
+        "warning": "#fbbb45",
+        "danger": "#ff5f6d",
+        "info": "#d0a2ff",
         "is_dark": True,
     },
     "Lavender": {
-        "background": "#faf5ff",
-        "foreground": "#3b0764",
-        "surface": "#ffffff",
-        "surface-2": "#f3e8ff",
-        "primary": "#9333ea",
+        "background": "#f4f0ff",
+        "foreground": "#32125a",
+        "surface": "#fbf9ff",
+        "surface-2": "#e4d8ff",
+        "primary": "#8a3ef5",
         "primary-foreground": "#ffffff",
-        "secondary": "#7c3aed",
+        "secondary": "#6f3bec",
         "secondary-foreground": "#ffffff",
-        "muted": "#a78bfa",
+        "muted": "#ab9ef0",
         "success": "#22c55e",
         "warning": "#f59e0b",
         "danger": "#ef4444",
@@ -200,31 +225,31 @@ PALETTE = {
         "is_dark": False,
     },
     "Charcoal": {
-        "background": "#18181b",
-        "foreground": "#fafafa",
-        "surface": "#27272a",
-        "surface-2": "#3f3f46",
-        "primary": "#facc15",
-        "primary-foreground": "#18181b",
-        "secondary": "#71717a",
-        "secondary-foreground": "#fafafa",
-        "muted": "#a1a1aa",
+        "background": "#1f1f24",
+        "foreground": "#f5f5f6",
+        "surface": "#2c2c33",
+        "surface-2": "#3e3e46",
+        "primary": "#f7c948",
+        "primary-foreground": "#1f1f24",
+        "secondary": "#888895",
+        "secondary-foreground": "#1f1f24",
+        "muted": "#b8b8c3",
         "success": "#4ade80",
-        "warning": "#fb923c",
+        "warning": "#fbbf54",
         "danger": "#f87171",
-        "info": "#60a5fa",
+        "info": "#74a6ff",
         "is_dark": True,
     },
     "Ocean Blue": {
-        "background": "#eff6ff",
-        "foreground": "#1e3a8a",
-        "surface": "#ffffff",
-        "surface-2": "#dbeafe",
-        "primary": "#2563eb",
+        "background": "#e8f1ff",
+        "foreground": "#1a3c76",
+        "surface": "#f6f9ff",
+        "surface-2": "#ccdcfb",
+        "primary": "#2b6be9",
         "primary-foreground": "#ffffff",
-        "secondary": "#1e40af",
+        "secondary": "#1f4db1",
         "secondary-foreground": "#ffffff",
-        "muted": "#60a5fa",
+        "muted": "#7aa4f8",
         "success": "#10b981",
         "warning": "#f59e0b",
         "danger": "#dc2626",
@@ -232,84 +257,100 @@ PALETTE = {
         "is_dark": False,
     },
     "Deep Space": {
-        "background": "#0c0a1d",
-        "foreground": "#e0e7ff",
-        "surface": "#1a1633",
-        "surface-2": "#2e2657",
-        "primary": "#818cf8",
-        "primary-foreground": "#0c0a1d",
-        "secondary": "#6366f1",
-        "secondary-foreground": "#ffffff",
-        "muted": "#a5b4fc",
-        "success": "#34d399",
-        "warning": "#fcd34d",
-        "danger": "#f87171",
-        "info": "#93c5fd",
+        "background": "#111129",
+        "foreground": "#e4e7ff",
+        "surface": "#1f1f3c",
+        "surface-2": "#303061",
+        "primary": "#94a3ff",
+        "primary-foreground": "#0f1026",
+        "secondary": "#6f74ff",
+        "secondary-foreground": "#0f1026",
+        "muted": "#bac3ff",
+        "success": "#40ddac",
+        "warning": "#f8d85a",
+        "danger": "#ff7a86",
+        "info": "#a0c2ff",
         "is_dark": True,
     },
     "Warm Sand": {
-        "background": "#fefcf3",
-        "foreground": "#451a03",
-        "surface": "#ffffff",
-        "surface-2": "#fef3c7",
-        "primary": "#d97706",
+        "background": "#f8f3e6",
+        "foreground": "#4a2b0c",
+        "surface": "#fdf9f0",
+        "surface-2": "#f2e4c8",
+        "primary": "#d0801f",
         "primary-foreground": "#ffffff",
-        "secondary": "#92400e",
+        "secondary": "#a15912",
         "secondary-foreground": "#ffffff",
-        "muted": "#78716c",
+        "muted": "#8a7669",
         "success": "#16a34a",
-        "warning": "#f59e0b",
+        "warning": "#f59f3d",
         "danger": "#dc2626",
-        "info": "#0891b2",
+        "info": "#0f8aa8",
         "is_dark": False,
     },
     "Cherry Blossom": {
-        "background": "#fdf2f8",
-        "foreground": "#831843",
-        "surface": "#ffffff",
-        "surface-2": "#fce7f3",
-        "primary": "#ec4899",
+        "background": "#f9eef4",
+        "foreground": "#7a1439",
+        "surface": "#fff9fb",
+        "surface-2": "#f3d6e3",
+        "primary": "#f062a6",
         "primary-foreground": "#ffffff",
-        "secondary": "#db2777",
+        "secondary": "#dd3c89",
         "secondary-foreground": "#ffffff",
-        "muted": "#f472b6",
+        "muted": "#f2a6cb",
         "success": "#22c55e",
         "warning": "#f59e0b",
-        "danger": "#be123c",
-        "info": "#f9a8d4",
+        "danger": "#c0174e",
+        "info": "#f8add8",
         "is_dark": False,
     },
     "Emerald Night": {
-        "background": "#022c22",
-        "foreground": "#d1fae5",
-        "surface": "#064e3b",
-        "surface-2": "#065f46",
-        "primary": "#34d399",
-        "primary-foreground": "#022c22",
-        "secondary": "#10b981",
-        "secondary-foreground": "#ffffff",
-        "muted": "#6ee7b7",
+        "background": "#07332a",
+        "foreground": "#cffae7",
+        "surface": "#0c4b3d",
+        "surface-2": "#116152",
+        "primary": "#38d9a9",
+        "primary-foreground": "#042a22",
+        "secondary": "#18b892",
+        "secondary-foreground": "#042a22",
+        "muted": "#74e8c7",
         "success": "#22c55e",
-        "warning": "#fbbf24",
-        "danger": "#f43f5e",
+        "warning": "#f7c948",
+        "danger": "#f87171",
         "info": "#2dd4bf",
-        "is_dork": True,
+        "is_dark": True,
     },
     "Monochrome": {
-        "background": "#fafafa",
-        "foreground": "#171717",
-        "surface": "#ffffff",
-        "surface-2": "#e5e5e5",
-        "primary": "#404040",
+        "background": "#f3f3f3",
+        "foreground": "#1f1f1f",
+        "surface": "#fdfdfd",
+        "surface-2": "#dedede",
+        "primary": "#4b4b4b",
         "primary-foreground": "#ffffff",
-        "secondary": "#737373",
+        "secondary": "#6f6f6f",
         "secondary-foreground": "#ffffff",
-        "muted": "#a3a3a3",
+        "muted": "#a6a6a6",
         "success": "#22c55e",
         "warning": "#f59e0b",
         "danger": "#dc2626",
-        "info": "#525252",
+        "info": "#5f5f5f",
         "is_dark": False,
+    },
+    "Nord": {
+        "background": "#2e3440",
+        "foreground": "#eceff4",
+        "surface": "#3b4252",
+        "surface-2": "#434c5e",
+        "primary": "#88c0d0",
+        "primary-foreground": "#1b1f29",
+        "secondary": "#81a1c1",
+        "secondary-foreground": "#1b1f29",
+        "muted": "#aebbd5",
+        "success": "#a3be8c",
+        "warning": "#ebcb8b",
+        "danger": "#bf616a",
+        "info": "#8fbcbb",
+        "is_dark": True,
     },
 }
 
@@ -400,6 +441,28 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
     style.configure(
         "Section.TFrame",
         background=palette["surface"],
+    )
+    style.configure(
+        "Chrome.TFrame",
+        background=palette["surface"],
+    )
+    style.configure(
+        "ChromeTitle.TLabel",
+        background=palette["surface"],
+        foreground=palette["foreground"],
+        font=("Segoe UI Semibold", 12),
+    )
+    style.configure(
+        "ChromeMenu.TLabel",
+        background=palette["surface"],
+        foreground=palette["muted"],
+        padding=(10, 6),
+        font=("Segoe UI", 10),
+    )
+    style.map(
+        "ChromeMenu.TLabel",
+        foreground=[("active", palette["foreground"])],
+        background=[("active", _blend(palette["surface"], palette["primary"], 0.12))],
     )
     style.configure(
         "Section.TLabelframe",

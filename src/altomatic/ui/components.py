@@ -8,7 +8,10 @@ import tkinter as tk
 from importlib import resources
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-import pyperclip
+try:
+    import pyperclip
+except ModuleNotFoundError:  # pragma: no cover - optional in frozen build
+    pyperclip = None
 
 from ..config import open_config_folder, save_config
 from ..models import (
@@ -23,7 +26,15 @@ from ..models import (
     refresh_openrouter_models,
 )
 from ..prompts import get_prompt_template, load_prompts, save_prompts
-from ..utils import get_image_count_in_folder, slugify
+from ..utils import (
+    configure_global_proxy,
+    detect_system_proxies,
+    get_image_count_in_folder,
+    get_requests_proxies,
+    reload_system_proxies,
+    set_proxy_preferences,
+    slugify,
+)
 from .themes import PALETTE, apply_theme, apply_theme_to_window
 
 
@@ -84,6 +95,13 @@ def update_model_pricing(state) -> None:
     state["lbl_model_pricing"].config(
         text=f"{provider_label} • {model_label}\n{format_pricing(provider, model_id)}{vendor_line}"
     )
+
+
+def _format_proxy_mapping(mapping: dict[str, str]) -> str:
+    if not mapping:
+        return "None"
+    lines = [f"{scheme}: {value}" for scheme, value in sorted(mapping.items())]
+    return "\n".join(lines)
 
 
 def update_summary(state) -> None:
@@ -193,31 +211,51 @@ def open_prompt_editor(state) -> None:
     root = state.get("root")
     editor = tk.Toplevel(root)
     editor.title("Prompt Editor")
-    editor.geometry(_scaled_geometry(editor, 800, 630))
+    editor.geometry(_scaled_geometry(editor, 960, 680))
+    editor.minsize(720, 540)
     editor.grab_set()
     current_theme = state["ui_theme"].get()
-    palette = PALETTE.get(current_theme, PALETTE["Default Light"])
+    palette = PALETTE.get(current_theme)
+    if palette is None:
+        default_theme = next(iter(PALETTE.keys()))
+        palette = PALETTE[default_theme]
+        current_theme = default_theme
     editor.configure(bg=palette["background"])
     _apply_window_icon(editor)
 
     prompts = load_prompts()
     working = {key: dict(value) for key, value in prompts.items()}
 
-    frame = ttk.Frame(editor, padding=10, style="Section.TFrame")
-    frame.pack(fill="both", expand=True)
-    frame.columnconfigure(1, weight=1)
-    frame.rowconfigure(1, weight=1)
+    container = ttk.Frame(editor, padding=12, style="Section.TFrame")
+    container.pack(fill="both", expand=True)
+    container.columnconfigure(0, weight=1)
+    container.rowconfigure(0, weight=1)
 
-    ttk.Label(frame, text="Available prompts:").grid(row=0, column=0, sticky="w")
+    paned = ttk.Panedwindow(container, orient="horizontal")
+    paned.grid(row=0, column=0, sticky="nsew")
+
+    list_panel = ttk.Frame(paned, style="Section.TFrame", padding=8)
+    list_panel.columnconfigure(0, weight=1)
+    list_panel.rowconfigure(2, weight=1)
+
+    ttk.Label(list_panel, text="Available prompts", style="Subheading.TLabel").grid(row=0, column=0, sticky="w")
+
+    search_var = tk.StringVar()
+
+    search_entry = ttk.Entry(list_panel, textvariable=search_var)
+    search_entry.grid(row=1, column=0, sticky="ew", pady=(4, 6))
+
     listbox = tk.Listbox(
-        frame,
+        list_panel,
         exportselection=False,
-        height=8,
+        height=12,
         highlightthickness=0,
         relief="flat",
         activestyle="none",
     )
-    listbox.grid(row=1, column=0, sticky="nsw")
+    listbox_scroll = ttk.Scrollbar(list_panel, orient="vertical", command=listbox.yview)
+    listbox.grid(row=2, column=0, sticky="nsew")
+    listbox_scroll.grid(row=2, column=1, sticky="ns")
     listbox.configure(
         bg=palette["surface"],
         fg=palette["foreground"],
@@ -225,17 +263,32 @@ def open_prompt_editor(state) -> None:
         selectforeground=palette["primary-foreground"],
         highlightbackground=palette["surface-2"],
         highlightcolor=palette["surface-2"],
+        yscrollcommand=listbox_scroll.set,
     )
 
+    detail_panel = ttk.Frame(paned, style="Section.TFrame", padding=12)
+    detail_panel.columnconfigure(0, weight=1)
+    detail_panel.rowconfigure(3, weight=1)
+
+    ttk.Label(detail_panel, text="Prompt label", style="TLabel").grid(row=0, column=0, sticky="w")
     label_var = tk.StringVar()
+    label_entry = ttk.Entry(detail_panel, textvariable=label_var)
+    label_entry.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
+    ttk.Label(detail_panel, text="Prompt template", style="TLabel").grid(row=2, column=0, sticky="w")
+    template_frame = ttk.Frame(detail_panel, style="Section.TFrame")
+    template_frame.grid(row=3, column=0, sticky="nsew")
+    template_frame.columnconfigure(0, weight=1)
+    template_frame.rowconfigure(0, weight=1)
+
     template_text = tk.Text(
-        frame,
+        template_frame,
         wrap="word",
         relief="flat",
         borderwidth=1,
         highlightthickness=1,
     )
-    template_text.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
+    template_text.grid(row=0, column=0, sticky="nsew")
     template_text.configure(
         bg=palette["surface"],
         fg=palette["foreground"],
@@ -244,46 +297,68 @@ def open_prompt_editor(state) -> None:
         highlightcolor=palette["surface-2"],
     )
 
-    scrollbar = ttk.Scrollbar(frame, orient="vertical", command=template_text.yview)
-    scrollbar.grid(row=1, column=2, sticky="ns")
-    template_text.configure(yscrollcommand=scrollbar.set)
+    template_scroll = ttk.Scrollbar(template_frame, orient="vertical", command=template_text.yview)
+    template_scroll.grid(row=0, column=1, sticky="ns")
+    template_text.configure(yscrollcommand=template_scroll.set)
 
-    button_frame = ttk.Frame(editor, padding=(10, 0), style="Section.TFrame")
-    button_frame.pack(fill="x")
+    template_stats = tk.StringVar(value="0 characters")
+    stats_label = ttk.Label(detail_panel, textvariable=template_stats, style="Small.TLabel")
+    stats_label.grid(row=4, column=0, sticky="w", pady=(6, 0))
+
+    button_bar = ttk.Frame(detail_panel, style="Section.TFrame")
+    button_bar.grid(row=5, column=0, sticky="ew", pady=(12, 0))
+    button_bar.columnconfigure(5, weight=1)
+
+    paned.add(list_panel, weight=1)
+    paned.add(detail_panel, weight=3)
 
     current_key = tk.StringVar(value=state["prompt_key"].get())
+    visible_keys: list[str] = []
+
+    def update_template_stats() -> None:
+        text = template_text.get("1.0", "end-1c")
+        template_stats.set(f"{len(text)} characters")
 
     def refresh_list(select_key: str | None = None) -> None:
+        if select_key is None:
+            select_key = current_key.get()
         listbox.delete(0, "end")
-        for key, value in working.items():
-            listbox.insert("end", value.get("label", key))
-        keys = list(working.keys())
-        if select_key and select_key in working:
-            index = keys.index(select_key)
-        elif current_key.get() in working:
-            index = keys.index(current_key.get())
-        else:
-            index = 0 if keys else -1
-        if index >= 0:
-            listbox.select_set(index)
-            listbox.event_generate("<<ListboxSelect>>")
+        visible_keys.clear()
+        needle = search_var.get().strip().lower()
+        for key, entry in working.items():
+            label = entry.get("label", key)
+            haystack = f"{label} {key}".lower()
+            if needle and needle not in haystack:
+                continue
+            visible_keys.append(key)
+            listbox.insert("end", label)
+
+        if not visible_keys:
+            current_key.set("")
+            label_var.set("")
+            template_text.delete("1.0", "end")
+            update_template_stats()
+            return
+
+        if select_key not in visible_keys:
+            select_key = visible_keys[0]
+        index = visible_keys.index(select_key)
+        current_key.set(select_key)
+        listbox.select_set(index)
+        listbox.see(index)
+        load_selected()
 
     def load_selected(event=None) -> None:
         selection = listbox.curselection()
-        if not selection:
+        if not selection or selection[0] >= len(visible_keys):
             return
-        key = list(working.keys())[selection[0]]
+        key = visible_keys[selection[0]]
         current_key.set(key)
-        entry = working[key]
+        entry = working.get(key, {})
         label_var.set(entry.get("label", key))
         template_text.delete("1.0", "end")
         template_text.insert("1.0", entry.get("template", ""))
-
-    listbox.bind("<<ListboxSelect>>", load_selected)
-
-    ttk.Label(button_frame, text="Prompt label:").grid(row=0, column=0, sticky="w")
-    label_entry = ttk.Entry(button_frame, textvariable=label_var, width=40)
-    label_entry.grid(row=0, column=1, sticky="w")
+        update_template_stats()
 
     def add_prompt() -> None:
         name = simpledialog.askstring("New Prompt", "Enter a label for the new prompt:", parent=editor)
@@ -292,12 +367,31 @@ def open_prompt_editor(state) -> None:
         key = slugify(name)
         if not key:
             key = f"prompt{len(working)+1}"
-        if key in working:
-            messagebox.showerror("Duplicate", "A prompt with that name already exists.", parent=editor)
-            return
+        base_key = key
+        suffix = 1
+        while key in working:
+            suffix += 1
+            key = f"{base_key}-{suffix}"
         working[key] = {"label": name.strip(), "template": ""}
         refresh_list(select_key=key)
         label_entry.focus_set()
+
+    def duplicate_prompt(event=None) -> None:
+        key = current_key.get()
+        if key not in working:
+            return
+        base_label = working[key].get("label", key)
+        new_label = f"{base_label} Copy"
+        candidate = slugify(new_label) or f"{key}-copy"
+        suffix = 1
+        while candidate in working:
+            suffix += 1
+            candidate = slugify(f"{new_label} {suffix}") or f"{key}-copy-{suffix}"
+        working[candidate] = {
+            "label": f"{base_label} Copy" if suffix == 1 else f"{base_label} Copy {suffix}",
+            "template": working[key].get("template", ""),
+        }
+        refresh_list(select_key=candidate)
 
     def delete_prompt(event=None) -> None:
         key = current_key.get()
@@ -325,43 +419,85 @@ def open_prompt_editor(state) -> None:
         save_changes()
         editor.destroy()
 
-    ttk.Button(button_frame, text="Add", command=add_prompt, style="Accent.TButton").grid(
-        row=1, column=0, pady=10, sticky="w"
-    )
-    ttk.Button(button_frame, text="Delete", command=delete_prompt, style="Secondary.TButton").grid(
-        row=1, column=1, pady=10, sticky="w", padx=5
-    )
-    ttk.Button(button_frame, text="Save", command=save_changes, style="TButton").grid(
-        row=1, column=2, pady=10, sticky="w", padx=5
-    )
-    ttk.Button(button_frame, text="Save & Close", command=save_and_close, style="Accent.TButton").grid(
-        row=1, column=3, pady=10, sticky="w", padx=5
-    )
-    ttk.Button(button_frame, text="Close", command=editor.destroy, style="TButton").grid(
-        row=1, column=4, pady=10, sticky="w", padx=5
-    )
+    ttk.Button(button_bar, text="Add", command=add_prompt, style="Accent.TButton").grid(row=0, column=0, padx=(0, 6))
+    ttk.Button(button_bar, text="Duplicate", command=duplicate_prompt, style="TButton").grid(row=0, column=1, padx=(0, 6))
+    ttk.Button(button_bar, text="Delete", command=delete_prompt, style="Secondary.TButton").grid(row=0, column=2, padx=(0, 6))
+    ttk.Button(button_bar, text="Save", command=save_changes, style="TButton").grid(row=0, column=3, padx=(0, 6))
+    ttk.Button(button_bar, text="Save & Close", command=save_and_close, style="Accent.TButton").grid(row=0, column=4, padx=(0, 6))
+    ttk.Button(button_bar, text="Close", command=editor.destroy, style="TButton").grid(row=0, column=5)
+
+    def on_search_change(*_args) -> None:
+        refresh_list()
+
+    search_entry.bind("<KeyRelease>", on_search_change)
+    listbox.bind("<<ListboxSelect>>", load_selected)
+    listbox.bind("<Double-Button-1>", lambda *_: template_text.focus_set())
+
+    template_text.bind("<KeyRelease>", lambda *_: update_template_stats())
 
     refresh_list(select_key=current_key.get())
     apply_theme_to_window(editor, current_theme)
     editor.bind("<Control-s>", save_changes)
+    editor.bind("<Control-d>", duplicate_prompt)
     listbox.bind("<Delete>", delete_prompt)
+    search_entry.focus_set()
 
 
 def build_ui(root, user_config):
     """Build the main UI and stitch components together."""
-    main_frame = ttk.Frame(root, padding=16)
-    main_frame.grid(row=0, column=0, sticky="nsew")
+    chroma_frame = ttk.Frame(root, padding=(16, 0, 16, 16))
+    chroma_frame.grid(row=0, column=0, sticky="nsew")
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
+
+    chrome_bar = ttk.Frame(chroma_frame, style="Chrome.TFrame")
+    chrome_bar.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+    chrome_bar.columnconfigure((0, 1), weight=1)
+
+    title_container = ttk.Frame(chrome_bar, style="Chrome.TFrame")
+    title_container.grid(row=0, column=0, sticky="w")
+    ttk.Label(title_container, text="Altomatic", style="ChromeTitle.TLabel").pack(side="left")
+
+    menu_container = ttk.Frame(chrome_bar, style="Chrome.TFrame")
+    menu_container.grid(row=0, column=1, sticky="e")
+    menu_container.columnconfigure((0, 1), weight=0)
+
+    menubar = tk.Menu(root, tearoff=False)
+    root.config(menu="")
+
+    def _popup_menu(items, event):
+        menu = tk.Menu(menu_container, tearoff=False)
+        for label, command in items:
+            menu.add_command(label=label, command=command)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _on_file(event):
+        _popup_menu([("Exit", root.destroy)], event)
+
+    def _on_help(event):
+        _popup_menu([("About", lambda: _show_about(state))], event)
+
+    file_button = ttk.Label(menu_container, text="File", style="ChromeMenu.TLabel")
+    file_button.grid(row=0, column=0, padx=(0, 8))
+    file_button.bind("<Button-1>", _on_file)
+
+    help_button = ttk.Label(menu_container, text="Help", style="ChromeMenu.TLabel")
+    help_button.grid(row=0, column=1)
+    help_button.bind("<Button-1>", _on_help)
+
+    main_frame = ttk.Frame(chroma_frame, padding=16)
+    main_frame.grid(row=1, column=0, sticky="nsew")
+    chroma_frame.columnconfigure(0, weight=1)
+    chroma_frame.rowconfigure(1, weight=1)
 
     # Configure main_frame for a 2-column layout
     main_frame.columnconfigure(0, weight=1, minsize=450)
     main_frame.columnconfigure(1, weight=1, minsize=400)
     main_frame.rowconfigure(0, weight=1)  # Main content row
     main_frame.rowconfigure(1, weight=0)  # Footer row
-
-    menubar = tk.Menu(root)
-    root.config(menu=menubar)
 
     prompts_data = load_prompts()
     prompt_names = list(prompts_data.keys()) or ["default"]
@@ -407,6 +543,8 @@ def build_ui(root, user_config):
         "output_folder_option": tk.StringVar(value=user_config.get("output_folder_option", "Same as input")),
         "openai_api_key": tk.StringVar(value=user_config.get("openai_api_key", "")),
         "openrouter_api_key": tk.StringVar(value=user_config.get("openrouter_api_key", "")),
+        "proxy_enabled": tk.BooleanVar(value=user_config.get("proxy_enabled", True)),
+        "proxy_override": tk.StringVar(value=user_config.get("proxy_override", "")),
         "filename_language": tk.StringVar(value=user_config.get("filename_language", "English")),
         "alttext_language": tk.StringVar(value=user_config.get("alttext_language", "English")),
         "name_detail_level": tk.StringVar(value=user_config.get("name_detail_level", "Detailed")),
@@ -434,7 +572,20 @@ def build_ui(root, user_config):
         "summary_model": tk.StringVar(),
         "summary_prompt": tk.StringVar(),
         "summary_output": tk.StringVar(),
+        "_proxy_last_settings": None,
     }
+
+    detected_initial = detect_system_proxies()
+    state["proxy_detected_label"] = tk.StringVar(value=_format_proxy_mapping(detected_initial))
+    effective_initial = get_requests_proxies(
+        enabled=state["proxy_enabled"].get(),
+        override=state["proxy_override"].get().strip() or None,
+    )
+    state["proxy_effective_label"] = tk.StringVar(value=_format_proxy_mapping(effective_initial))
+    state["_proxy_last_settings"] = (
+        state["proxy_enabled"].get(),
+        state["proxy_override"].get().strip(),
+    )
 
     # --- Create main layout containers ---
     left_frame = ttk.Frame(main_frame)
@@ -496,12 +647,20 @@ def build_ui(root, user_config):
     state["output_folder_option"].trace_add("write", on_output_folder_change)
     state["custom_output_path"].trace_add("write", lambda *_: update_summary(state))
     state["ui_theme"].trace_add("write", lambda *_, **kwargs: apply_theme(root, state["ui_theme"].get()))
+    state["proxy_enabled"].trace_add("write", lambda *_: _apply_proxy_preferences(state))
+    state["proxy_override"].trace_add("write", lambda *_: _apply_proxy_preferences(state))
+    state["openai_api_key"].trace_add("write", lambda *_: _update_provider_status_labels(state))
+    state["openrouter_api_key"].trace_add("write", lambda *_: _update_provider_status_labels(state))
+    state["filename_language"].trace_add("write", lambda *_: update_summary(state))
+    state["alttext_language"].trace_add("write", lambda *_: update_summary(state))
 
     # Trigger initial state correctly
     on_output_folder_change()
     update_model_pricing(state)
     update_prompt_preview(state)
     update_summary(state)
+    _apply_proxy_preferences(state, force=True)
+    _update_provider_status_labels(state)
 
     return state
 
@@ -589,38 +748,49 @@ def _build_menus(menubar, root, state) -> None:
 
 def _build_tab_workflow(frame, state) -> None:
     """Build the main 'Workflow' tab for I/O."""
-    frame.columnconfigure(1, weight=1)
+    frame.columnconfigure(0, weight=1)
 
-    # --- Input Section ---
-    input_frame = ttk.Labelframe(frame, text="Input", style="Section.TLabelframe")
-    input_frame.grid(row=0, column=0, columnspan=3, sticky="nsew")
-    input_frame.columnconfigure(1, weight=1)
+    workflow_tabs = ttk.Notebook(frame)
+    workflow_tabs.grid(row=0, column=0, sticky="nsew")
 
-    ttk.Label(input_frame, text="Input Type:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-    option = ttk.OptionMenu(input_frame, state["input_type"], state["input_type"].get(), "Folder", "File")
+    input_tab = ttk.Frame(workflow_tabs, padding=12)
+    processing_tab = ttk.Frame(workflow_tabs, padding=12)
+    output_tab = ttk.Frame(workflow_tabs, padding=12)
+
+    for tab in (input_tab, processing_tab, output_tab):
+        tab.columnconfigure(0, weight=1)
+
+    workflow_tabs.add(input_tab, text="Input & Context")
+    workflow_tabs.add(processing_tab, text="Processing Options")
+    workflow_tabs.add(output_tab, text="Output")
+
+    input_card = ttk.Frame(input_tab, style="Section.TFrame", padding=12)
+    input_card.grid(row=0, column=0, sticky="nsew")
+    input_card.columnconfigure(1, weight=1)
+
+    ttk.Label(input_card, text="Input type:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+    option = ttk.OptionMenu(input_card, state["input_type"], state["input_type"].get(), "Folder", "File")
     option.grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
-    ttk.Label(input_frame, text="Input Path:", style="TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-    entry = ttk.Entry(input_frame, textvariable=state["input_path"], width=50)
+    ttk.Label(input_card, text="Input path:", style="TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+    entry = ttk.Entry(input_card, textvariable=state["input_path"], width=50)
     entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
     state["input_entry"] = entry
-    ttk.Button(input_frame, text="Browse", command=lambda: _select_input(state), style="TButton").grid(
+    ttk.Button(input_card, text="Browse", command=lambda: _select_input(state), style="TButton").grid(
         row=1, column=2, padx=5, pady=5
     )
 
-    ttk.Label(input_frame, textvariable=state["image_count"], style="Small.TLabel").grid(
+    ttk.Label(input_card, textvariable=state["image_count"], style="Small.TLabel").grid(
         row=2, column=1, columnspan=2, sticky="w", padx=5
     )
 
-    ttk.Label(input_frame, text="Context:", style="TLabel").grid(
-        row=3, column=0, sticky="nw", padx=5, pady=(5, 0)
+    ttk.Label(input_card, text="Context notes:", style="TLabel").grid(
+        row=3, column=0, sticky="nw", padx=5, pady=(8, 0)
     )
-    context_frame = ttk.Frame(input_frame, style="Section.TFrame")
-    context_frame.grid(row=3, column=1, columnspan=2, sticky="ew", padx=5, pady=(5, 5))
+    context_frame = ttk.Frame(input_card, style="Section.TFrame")
+    context_frame.grid(row=3, column=1, columnspan=2, sticky="ew", padx=5, pady=(8, 5))
     context_frame.columnconfigure(0, weight=1)
-    context_entry = tk.Text(
-        context_frame, height=4, width=50, wrap="word", relief="solid", borderwidth=1
-    )
+    context_entry = tk.Text(context_frame, height=6, wrap="word", relief="solid", borderwidth=1)
     context_entry.grid(row=0, column=0, sticky="nsew")
     context_scrollbar = ttk.Scrollbar(context_frame, orient="vertical", command=context_entry.yview)
     context_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -628,39 +798,93 @@ def _build_tab_workflow(frame, state) -> None:
 
     char_count_var = tk.StringVar(value="0 characters")
     state["context_char_count"] = char_count_var
-    char_count_label = ttk.Label(input_frame, textvariable=char_count_var, style="Small.TLabel")
-    char_count_label.grid(row=4, column=1, sticky="w", padx=5)
-
-    ttk.Button(
-        input_frame,
-        text="Clear",
-        command=lambda: _clear_context(state),
-        style="Secondary.TButton",
-    ).grid(row=4, column=2, sticky="e", padx=5)
+    ttk.Label(input_card, textvariable=char_count_var, style="Small.TLabel").grid(row=4, column=1, sticky="w", padx=5)
+    ttk.Button(input_card, text="Clear", command=lambda: _clear_context(state), style="Secondary.TButton").grid(
+        row=4, column=2, sticky="e", padx=5
+    )
 
     def update_char_count(event=None):
         content = context_entry.get("1.0", "end-1c")
-        count = len(content)
-        char_count_var.set(f"{count} characters")
+        char_count_var.set(f"{len(content)} characters")
         state["context_text"].set(content)
 
     context_entry.bind("<KeyRelease>", update_char_count)
     state["context_widget"] = context_entry
 
-    # Load initial text if any and update counter
-    initial_text = state["context_text"].get()
-    if initial_text:
+    if initial_text := state["context_text"].get():
         context_entry.insert("1.0", initial_text)
         update_char_count()
 
-    # --- Output Section ---
-    output_frame = ttk.Labelframe(frame, text="Output", style="Section.TLabelframe", padding=16)
-    output_frame.grid(row=1, column=0, columnspan=3, sticky="nsew", pady=16)
-    output_frame.columnconfigure(1, weight=1)
+    options_card = ttk.Frame(processing_tab, style="Section.TFrame", padding=12)
+    options_card.grid(row=0, column=0, sticky="nsew")
+    options_card.columnconfigure(1, weight=1)
 
-    ttk.Label(output_frame, text="Save to:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+    language_row = ttk.Frame(options_card, style="Section.TFrame")
+    language_row.grid(row=0, column=0, columnspan=4, sticky="ew")
+    language_row.columnconfigure((1, 3), weight=1)
+    ttk.Label(language_row, text="Filename language:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
     ttk.OptionMenu(
-        output_frame,
+        language_row,
+        state["filename_language"],
+        state["filename_language"].get(),
+        "English",
+        "Persian",
+    ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+    ttk.Label(language_row, text="Alt-text language:", style="TLabel").grid(row=0, column=2, sticky="w", padx=5, pady=5)
+    ttk.OptionMenu(
+        language_row,
+        state["alttext_language"],
+        state["alttext_language"].get(),
+        "English",
+        "Persian",
+    ).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+    ttk.Label(options_card, text="Name detail level:", style="TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+    ttk.OptionMenu(
+        options_card,
+        state["name_detail_level"],
+        state["name_detail_level"].get(),
+        "Detailed",
+        "Normal",
+        "Minimal",
+    ).grid(row=1, column=1, sticky="w", padx=5, pady=5)
+
+    ttk.Label(options_card, text="Vision detail:", style="TLabel").grid(row=1, column=2, sticky="w", padx=5, pady=5)
+    ttk.OptionMenu(
+        options_card,
+        state["vision_detail"],
+        state["vision_detail"].get(),
+        "auto",
+        "high",
+        "low",
+    ).grid(row=1, column=3, sticky="w", padx=5, pady=5)
+
+    ocr_section = ttk.Frame(options_card, style="Section.TFrame")
+    ocr_section.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(8, 0))
+    ocr_section.columnconfigure(1, weight=1)
+    ttk.Checkbutton(ocr_section, text="Enable OCR before compression", variable=state["ocr_enabled"]).grid(
+        row=0, column=0, columnspan=2, sticky="w", padx=5, pady=5
+    )
+    ttk.Label(ocr_section, text="Tesseract path:", style="TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+    ttk.Entry(ocr_section, textvariable=state["tesseract_path"], width=36).grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    ttk.Button(ocr_section, text="Browse", command=lambda: _browse_tesseract(state), style="TButton").grid(
+        row=1, column=2, padx=5, pady=5
+    )
+    ttk.Label(ocr_section, text="OCR language:", style="TLabel").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+    ttk.Entry(ocr_section, textvariable=state["ocr_language"], width=10).grid(row=2, column=1, sticky="w", padx=5, pady=5)
+
+    ttk.Label(options_card, text="Current selection:", style="Small.TLabel").grid(row=3, column=0, sticky="w", padx=5, pady=(10, 0))
+    options_card.columnconfigure(0, weight=1)
+    summary_line = ttk.Label(options_card, textvariable=state["summary_prompt"], style="SmallMuted.TLabel")
+    summary_line.grid(row=3, column=1, columnspan=3, sticky="w", padx=5, pady=(10, 0))
+
+    output_card = ttk.Frame(output_tab, style="Section.TFrame", padding=12)
+    output_card.grid(row=0, column=0, sticky="nsew")
+    output_card.columnconfigure(1, weight=1)
+
+    ttk.Label(output_card, text="Save to:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+    ttk.OptionMenu(
+        output_card,
         state["output_folder_option"],
         state["output_folder_option"].get(),
         "Same as input",
@@ -669,63 +893,72 @@ def _build_tab_workflow(frame, state) -> None:
         "Custom",
     ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
-    ttk.Label(output_frame, text="Custom Folder:", style="TLabel").grid(
+    ttk.Label(output_card, text="Custom folder:", style="TLabel").grid(
         row=1, column=0, sticky="w", padx=5, pady=5
     )
-    custom_output_entry = ttk.Entry(output_frame, textvariable=state["custom_output_path"], width=50)
+    custom_output_entry = ttk.Entry(output_card, textvariable=state["custom_output_path"], width=50)
     custom_output_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
     state["custom_output_entry"] = custom_output_entry
-    ttk.Button(
-        output_frame, text="Browse", command=lambda: _select_output_folder(state), style="TButton"
-    ).grid(row=1, column=2, padx=5, pady=5)
-    info_label = ttk.Label(
-        output_frame,
-        text="An alt-text report and renamed image files will be saved in a new session folder.",
-        style="Small.TLabel",
-        wraplength=400,
-        justify="left",
+    ttk.Button(output_card, text="Browse", command=lambda: _select_output_folder(state), style="TButton").grid(
+        row=1, column=2, padx=5, pady=5
     )
-    info_label.grid(row=2, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 5))
+    ttk.Label(
+        output_card,
+        text="Alt-text report and renamed images will be stored in a session folder.",
+        style="Small.TLabel",
+        wraplength=420,
+        justify="left",
+    ).grid(row=2, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 0))
 
 
 def _build_tab_prompts_model(frame, state) -> None:
     """Build the 'Prompts & Model' tab."""
-    frame.columnconfigure(1, weight=1)
+    frame.columnconfigure(0, weight=1)
+    notebook = ttk.Notebook(frame)
+    notebook.grid(row=0, column=0, sticky="nsew")
 
-    # --- Credentials & Model ---
-    model_frame = ttk.Labelframe(frame, text="API & Model", style="Section.TLabelframe", padding=16)
-    model_frame.grid(row=0, column=0, columnspan=3, sticky="nsew")
-    model_frame.columnconfigure(1, weight=1)
+    provider_tab = ttk.Frame(notebook, padding=16)
+    prompts_tab = ttk.Frame(notebook, padding=16)
 
-    ttk.Label(model_frame, text="Provider:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=5, pady=5
-    )
+    for tab in (provider_tab, prompts_tab):
+        tab.columnconfigure(0, weight=1)
+
+    notebook.add(provider_tab, text="LLM Provider")
+    notebook.add(prompts_tab, text="Prompts")
+
+    # --- Provider & API Card ---
+    provider_card = ttk.Frame(provider_tab, style="Section.TFrame", padding=12)
+    provider_card.grid(row=0, column=0, sticky="ew")
+    provider_card.columnconfigure(1, weight=1)
+
+    ttk.Label(provider_card, text="Provider:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
     provider_labels = {get_provider_label(pid): pid for pid in AVAILABLE_PROVIDERS}
     provider_label_var = tk.StringVar(value=get_provider_label(state["llm_provider"].get()))
     state["provider_label_var"] = provider_label_var
 
     ttk.OptionMenu(
-        model_frame,
+        provider_card,
         provider_label_var,
         provider_label_var.get(),
         *provider_labels.keys(),
         command=lambda label: state["llm_provider"].set(provider_labels[label]),
     ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
-    api_container = ttk.Frame(model_frame, style="Section.TFrame")
-    api_container.grid(row=1, column=0, columnspan=3, sticky="ew")
-    api_container.columnconfigure(1, weight=1)
+    api_columns = ttk.Frame(provider_card, style="Section.TFrame")
+    api_columns.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+    api_columns.columnconfigure(0, weight=1)
+    api_columns.columnconfigure(1, weight=1)
 
-    openai_frame = ttk.Frame(api_container, style="Section.TFrame")
-    openai_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+    openai_frame = ttk.Frame(api_columns, style="Section.TFrame", padding=10)
+    openai_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
     openai_frame.columnconfigure(1, weight=1)
 
-    ttk.Label(openai_frame, text="OpenAI API Key:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=5, pady=5
+    ttk.Label(openai_frame, text="OpenAI API Key", style="Subheading.TLabel").grid(
+        row=0, column=0, columnspan=2, sticky="w"
     )
-    openai_entry = ttk.Entry(openai_frame, textvariable=state["openai_api_key"], show="*", width=50)
-    openai_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+    openai_entry = ttk.Entry(openai_frame, textvariable=state["openai_api_key"], show="*", width=36)
+    openai_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=(6, 2))
     state["openai_api_entry"] = openai_entry
     show_openai = tk.BooleanVar()
 
@@ -733,10 +966,13 @@ def _build_tab_prompts_model(frame, state) -> None:
         openai_entry.config(show="" if show_openai.get() else "*")
 
     ttk.Checkbutton(openai_frame, text="Show", variable=show_openai, command=_toggle_openai_key).grid(
-        row=0, column=2, padx=(5, 0)
+        row=1, column=1, sticky="w", pady=(6, 2)
     )
 
     def _paste_openai_key() -> None:
+        if pyperclip is None:
+            set_status(state, "Clipboard support not available (install pyperclip).")
+            return
         try:
             if content := pyperclip.paste():
                 state["openai_api_key"].set(content)
@@ -746,21 +982,28 @@ def _build_tab_prompts_model(frame, state) -> None:
         except (pyperclip.PyperclipException, tk.TclError):
             set_status(state, "Could not access clipboard.")
 
-    ttk.Button(openai_frame, text="Paste", command=_paste_openai_key, style="TButton").grid(
-        row=0, column=3, padx=5
+    ttk.Button(openai_frame, text="Paste", command=_paste_openai_key, style="Secondary.TButton").grid(
+        row=2, column=0, sticky="w"
     )
+    openai_status = ttk.Label(
+        openai_frame,
+        textvariable=tk.StringVar(value="Ready" if state["openai_api_key"].get() else "Not set"),
+        style="Small.TLabel",
+    )
+    openai_status.grid(row=2, column=1, sticky="e")
+    state["openai_status_label"] = openai_status
 
-    openrouter_frame = ttk.Frame(api_container, style="Section.TFrame")
-    openrouter_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+    openrouter_frame = ttk.Frame(api_columns, style="Section.TFrame", padding=10)
+    openrouter_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
     openrouter_frame.columnconfigure(1, weight=1)
 
-    ttk.Label(openrouter_frame, text="OpenRouter API Key:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=5, pady=5
+    ttk.Label(openrouter_frame, text="OpenRouter API Key", style="Subheading.TLabel").grid(
+        row=0, column=0, columnspan=2, sticky="w"
     )
     openrouter_entry = ttk.Entry(
-        openrouter_frame, textvariable=state["openrouter_api_key"], show="*", width=50
+        openrouter_frame, textvariable=state["openrouter_api_key"], show="*", width=36
     )
-    openrouter_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+    openrouter_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=(6, 2))
     state["openrouter_api_entry"] = openrouter_entry
     show_openrouter = tk.BooleanVar()
 
@@ -769,9 +1012,12 @@ def _build_tab_prompts_model(frame, state) -> None:
 
     ttk.Checkbutton(
         openrouter_frame, text="Show", variable=show_openrouter, command=_toggle_openrouter_key
-    ).grid(row=0, column=2, padx=(5, 0))
+    ).grid(row=1, column=1, sticky="w", pady=(6, 2))
 
     def _paste_openrouter_key() -> None:
+        if pyperclip is None:
+            set_status(state, "Clipboard support not available (install pyperclip).")
+            return
         try:
             if content := pyperclip.paste():
                 state["openrouter_api_key"].set(content)
@@ -782,32 +1028,37 @@ def _build_tab_prompts_model(frame, state) -> None:
             set_status(state, "Could not access clipboard.")
 
     ttk.Button(
-        openrouter_frame, text="Paste", command=_paste_openrouter_key, style="TButton"
-    ).grid(row=0, column=3, padx=5)
-
-    ttk.Label(
+        openrouter_frame, text="Paste", command=_paste_openrouter_key, style="Secondary.TButton"
+    ).grid(row=2, column=0, sticky="w")
+    openrouter_status = ttk.Label(
         openrouter_frame,
-        text=(
-            "Free multimodal models are pulled from OpenRouter automatically."
-        ),
+        textvariable=tk.StringVar(value="Ready" if state["openrouter_api_key"].get() else "Not set"),
         style="Small.TLabel",
-        wraplength=360,
-        justify="left",
-    ).grid(row=2, column=0, columnspan=4, sticky="w", padx=5, pady=(0, 5))
-
-    ttk.Label(model_frame, text="Model:", style="TLabel").grid(
-        row=2, column=0, sticky="w", padx=5, pady=5
     )
+    openrouter_status.grid(row=2, column=1, sticky="e")
+    state["openrouter_status_label"] = openrouter_status
+
+    ttk.Label(openrouter_frame, text="Free multimodal models refresh automatically.", style="Small.TLabel").grid(
+        row=3, column=0, columnspan=2, sticky="w", pady=(6, 0)
+    )
+
+    state["openai_section"] = openai_frame
+    state["openrouter_section"] = openrouter_frame
+
+    # --- Model & Pricing Card ---
+    model_card = ttk.Frame(provider_tab, style="Section.TFrame", padding=12)
+    model_card.grid(row=1, column=0, sticky="nsew", pady=(16, 0))
+    model_card.columnconfigure(1, weight=1)
+
+    ttk.Label(model_card, text="Model:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
     model_label_var = tk.StringVar()
     state["model_label_var"] = model_label_var
 
-    model_menu = ttk.OptionMenu(model_frame, model_label_var, "")
-    model_menu.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+    model_menu = ttk.OptionMenu(model_card, model_label_var, "")
+    model_menu.grid(row=0, column=1, sticky="w", padx=5, pady=5)
     state["model_option_widget"] = model_menu
     state["model_option_menu"] = model_menu["menu"]
-    state["openai_section"] = openai_frame
-    state["openrouter_section"] = openrouter_frame
 
     def _refresh_openrouter_models_ui() -> None:
         try:
@@ -828,13 +1079,18 @@ def _build_tab_prompts_model(frame, state) -> None:
             set_status(state, f"Could not refresh models: {exc}")
 
     refresh_button = ttk.Button(
-        model_frame,
+        model_card,
         text="Refresh free models",
         command=_refresh_openrouter_models_ui,
         style="Secondary.TButton",
     )
-    refresh_button.grid(row=2, column=2, sticky="e", padx=(5, 0), pady=5)
+    refresh_button.grid(row=0, column=2, sticky="e", padx=(5, 0), pady=5)
     state["refresh_openrouter_button"] = refresh_button
+
+    state["lbl_model_pricing"] = ttk.Label(
+        model_card, text="", justify="left", style="Small.TLabel"
+    )
+    state["lbl_model_pricing"].grid(row=1, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 10))
 
     def _refresh_model_choices() -> None:
         provider_key = state["llm_provider"].get()
@@ -886,23 +1142,19 @@ def _build_tab_prompts_model(frame, state) -> None:
     _refresh_provider_sections()
     _refresh_model_choices()
 
-    state["lbl_model_pricing"] = ttk.Label(
-        model_frame, text="", justify="left", style="Small.TLabel"
-    )
-    state["lbl_model_pricing"].grid(row=3, column=1, sticky="w", padx=5, pady=(0, 10))
+    # --- Prompts Tab Content ---
+    prompt_card = ttk.Frame(prompts_tab, style="Section.TFrame", padding=12)
+    prompt_card.grid(row=0, column=0, sticky="nsew")
+    prompt_card.columnconfigure(0, weight=1)
+    prompt_card.rowconfigure(1, weight=1)
 
-    # --- Prompt Management ---
-    prompt_frame = ttk.Labelframe(frame, text="Prompt", style="Section.TLabelframe", padding=16)
-    prompt_frame.grid(row=1, column=0, columnspan=3, sticky="nsew", pady=16)
-    prompt_frame.columnconfigure(1, weight=1)
+    toolbar = ttk.Frame(prompt_card, style="Section.TFrame")
+    toolbar.grid(row=0, column=0, sticky="ew")
+    toolbar.columnconfigure(1, weight=1)
 
-    ttk.Label(prompt_frame, text="Prompt Preset:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=5, pady=5
-    )
+    ttk.Label(toolbar, text="Prompt preset:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
     prompt_labels = {v["label"]: k for k, v in state["prompts"].items()}
-
-    # Need a separate variable for the label, since the state tracks the key
     prompt_label_var = tk.StringVar(value=state["prompts"][state["prompt_key"].get()]["label"])
 
     def on_prompt_select(label):
@@ -911,7 +1163,7 @@ def _build_tab_prompts_model(frame, state) -> None:
         prompt_label_var.set(label)
 
     prompt_menu = ttk.OptionMenu(
-        prompt_frame,
+        toolbar,
         prompt_label_var,
         prompt_label_var.get(),
         *prompt_labels.keys(),
@@ -920,20 +1172,21 @@ def _build_tab_prompts_model(frame, state) -> None:
     prompt_menu.grid(row=0, column=1, sticky="w", padx=5, pady=5)
     state["prompt_option_widget"] = prompt_menu
     state["prompt_option_menu"] = prompt_menu["menu"]
+
     ttk.Button(
-        prompt_frame,
+        toolbar,
         text="Edit Prompts...",
         command=lambda: open_prompt_editor(state),
         style="Secondary.TButton",
-    ).grid(row=0, column=2, sticky="w", padx=5)
+    ).grid(row=0, column=2, sticky="e", padx=5)
 
-    preview_frame = ttk.Frame(prompt_frame, style="Section.TFrame")
-    preview_frame.grid(row=1, column=0, columnspan=3, sticky="ew", padx=5, pady=(5, 10))
+    preview_frame = ttk.Frame(prompt_card, style="Section.TFrame")
+    preview_frame.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
     preview_frame.columnconfigure(0, weight=1)
+
     prompt_preview = tk.Text(
         preview_frame,
-        height=8,
-        width=50,
+        height=10,
         wrap="word",
         state="disabled",
         relief="solid",
@@ -944,116 +1197,42 @@ def _build_tab_prompts_model(frame, state) -> None:
     preview_scrollbar.grid(row=0, column=1, sticky="ns")
     prompt_preview.configure(yscrollcommand=preview_scrollbar.set)
     state["prompt_preview"] = prompt_preview
+
+    footer = ttk.Frame(prompt_card, style="Section.TFrame")
+    footer.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+    footer.columnconfigure(0, weight=1)
+    ttk.Label(
+        footer,
+        text="Need to tweak prompts? Use the editor to duplicate or rename presets.",
+        style="Small.TLabel",
+    ).grid(row=0, column=0, sticky="w")
+
     refresh_prompt_choices(state)
 
 
 def _build_tab_advanced(frame, state) -> None:
     """Build the 'Advanced' settings tab."""
-    frame.columnconfigure(1, weight=1)
+    frame.columnconfigure(0, weight=1)
+    section_notebook = ttk.Notebook(frame)
+    section_notebook.grid(row=0, column=0, sticky="nsew")
 
-    # --- Appearance ---
-    appearance_frame = ttk.Labelframe(
-        frame, text="Appearance & Language", style="Section.TLabelframe", padding=16
-    )
-    appearance_frame.grid(row=0, column=0, sticky="nsew")
-    appearance_frame.columnconfigure(1, weight=1)
+    appearance_tab = ttk.Frame(section_notebook, padding=16)
+    automation_tab = ttk.Frame(section_notebook, padding=16)
+    network_tab = ttk.Frame(section_notebook, padding=16)
+    maintenance_tab = ttk.Frame(section_notebook, padding=16)
 
-    ttk.Label(appearance_frame, text="UI Theme:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=5, pady=5
-    )
-    ttk.OptionMenu(
-        appearance_frame,
-        state["ui_theme"],
-        state["ui_theme"].get(),
-        "Arctic Light",
-        "Midnight",
-        "Forest",
-        "Sunset",
-        "Lavender",
-        "Charcoal",
-        "Ocean Blue",
-        "Deep Space",
-        "Warm Sand",
-        "Cherry Blossom",
-        "Emerald Night",
-        "Monochrome",
-    ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+    for tab in (appearance_tab, automation_tab, network_tab, maintenance_tab):
+        tab.columnconfigure(0, weight=1)
 
-    ttk.Label(appearance_frame, text="Filename Language:", style="TLabel").grid(
-        row=1, column=0, sticky="w", padx=5, pady=5
-    )
-    ttk.OptionMenu(
-        appearance_frame,
-        state["filename_language"],
-        state["filename_language"].get(),
-        "English",
-        "Persian",
-    ).grid(row=1, column=1, sticky="w", padx=5, pady=5)
+    section_notebook.add(appearance_tab, text="Appearance")
+    section_notebook.add(automation_tab, text="Automation")
+    section_notebook.add(network_tab, text="Network")
+    section_notebook.add(maintenance_tab, text="Maintenance")
 
-    ttk.Label(appearance_frame, text="Alt Text Language:", style="TLabel").grid(
-        row=2, column=0, sticky="w", padx=5, pady=5
-    )
-    ttk.OptionMenu(
-        appearance_frame,
-        state["alttext_language"],
-        state["alttext_language"].get(),
-        "English",
-        "Persian",
-    ).grid(row=2, column=1, sticky="w", padx=5, pady=5)
-
-    # --- OCR & Automation ---
-    ocr_frame = ttk.Labelframe(frame, text="OCR & Automation", style="Section.TLabelframe", padding=16)
-    ocr_frame.grid(row=1, column=0, sticky="nsew", pady=16)
-    ocr_frame.columnconfigure(1, weight=1)
-
-    ttk.Checkbutton(ocr_frame, text="Enable OCR", variable=state["ocr_enabled"]).grid(
-        row=0, column=0, columnspan=2, sticky="w", padx=5, pady=5
-    )
-    ttk.Label(ocr_frame, text="Tesseract Path:", style="TLabel").grid(
-        row=1, column=0, sticky="w", padx=5, pady=5
-    )
-    ttk.Entry(ocr_frame, textvariable=state["tesseract_path"], width=40).grid(
-        row=1, column=1, sticky="ew", padx=5, pady=5
-    )
-    ttk.Button(
-        ocr_frame, text="Browse", command=lambda: _browse_tesseract(state), style="TButton"
-    ).grid(row=1, column=2, padx=5, pady=5)
-    ttk.Label(ocr_frame, text="OCR Language:", style="TLabel").grid(
-        row=2, column=0, sticky="w", padx=5, pady=5
-    )
-    ttk.Entry(ocr_frame, textvariable=state["ocr_language"], width=10).grid(
-        row=2, column=1, sticky="w", padx=5, pady=5
-    )
-
-    # --- Maintenance ---
-    maintenance_frame = ttk.Labelframe(frame, text="Maintenance", style="Section.TLabelframe", padding=16)
-    maintenance_frame.grid(row=2, column=0, sticky="nsew")
-    maintenance_frame.columnconfigure(1, weight=1)
-
-    ttk.Button(
-        maintenance_frame, text="Save Settings", command=lambda: _save_settings(state), style="TButton"
-    ).grid(row=0, column=0, padx=5, pady=5)
-    ttk.Button(
-        maintenance_frame, text="Open Config Folder", command=open_config_folder, style="TButton"
-    ).grid(row=0, column=1, padx=5, pady=5)
-    ttk.Button(
-        maintenance_frame,
-        text="Reset Defaults",
-        command=lambda: state["reset_config_callback"](),
-        style="Secondary.TButton",
-    ).grid(row=1, column=0, padx=5, pady=5)
-    ttk.Button(
-        maintenance_frame,
-        text="Reset Token Usage",
-        command=lambda: _reset_token_usage(state),
-        style="Secondary.TButton",
-    ).grid(row=1, column=1, padx=5, pady=5)
-    ttk.Button(
-        maintenance_frame,
-        text="Reset Analyzed Stats",
-        command=lambda: _reset_global_stats(state),
-        style="Secondary.TButton",
-    ).grid(row=1, column=2, padx=5, pady=5)
+    _build_appearance_section(appearance_tab, state)
+    _build_automation_section(automation_tab, state)
+    _build_proxy_section(network_tab, state)
+    _build_maintenance_section(maintenance_tab, state)
 
 
 def _clear_context(state, *, silent: bool = False) -> None:
@@ -1126,6 +1305,221 @@ def _reset_global_stats(state) -> None:
         append_monitor_colored(state, "No global_images_count found to reset", "warn")
 
 
+def _build_appearance_section(parent, state) -> None:
+    card = ttk.Frame(parent, style="Section.TFrame", padding=12)
+    card.grid(row=0, column=0, sticky="nsew")
+    card.columnconfigure(1, weight=1)
+
+    ttk.Label(card, text="UI Theme:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+    ttk.OptionMenu(
+        card,
+        state["ui_theme"],
+        state["ui_theme"].get(),
+        "Arctic Light",
+        "Midnight",
+        "Forest",
+        "Sunset",
+        "Lavender",
+        "Charcoal",
+        "Ocean Blue",
+        "Deep Space",
+        "Warm Sand",
+        "Cherry Blossom",
+        "Emerald Night",
+        "Monochrome",
+        "Nord",
+    ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+    ttk.Label(
+        card,
+        text="Choose a theme to customize the overall look and feel.",
+        style="Small.TLabel",
+        wraplength=420,
+        justify="left",
+    ).grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=(8, 0))
+
+
+def _build_automation_section(parent, state) -> None:
+    card = ttk.Frame(parent, style="Section.TFrame", padding=12)
+    card.grid(row=0, column=0, sticky="nsew")
+    card.columnconfigure(1, weight=1)
+
+    ttk.Checkbutton(card, text="Enable OCR", variable=state["ocr_enabled"]).grid(
+        row=0, column=0, columnspan=3, sticky="w", padx=5, pady=5
+    )
+
+    ttk.Label(card, text="Tesseract path:", style="TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+    ttk.Entry(card, textvariable=state["tesseract_path"], width=40).grid(
+        row=1, column=1, sticky="ew", padx=5, pady=5
+    )
+    ttk.Button(card, text="Browse", command=lambda: _browse_tesseract(state), style="TButton").grid(
+        row=1, column=2, padx=5, pady=5
+    )
+
+    ttk.Label(card, text="OCR language:", style="TLabel").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+    ttk.Entry(card, textvariable=state["ocr_language"], width=10).grid(
+        row=2, column=1, sticky="w", padx=5, pady=5
+    )
+
+    info = (
+        "When enabled, detected text is shared with the model before compression."
+    )
+    ttk.Label(card, text=info, style="Small.TLabel", wraplength=420, justify="left").grid(
+        row=3, column=0, columnspan=3, sticky="w", padx=5, pady=(4, 0)
+    )
+
+
+def _build_proxy_section(parent, state) -> None:
+    card = ttk.Frame(parent, style="Section.TFrame", padding=12)
+    card.grid(row=0, column=0, sticky="nsew")
+    card.columnconfigure(0, weight=1)
+
+    header = ttk.Frame(card, style="Section.TFrame")
+    header.grid(row=0, column=0, sticky="ew")
+    header.columnconfigure(0, weight=1)
+
+    ttk.Checkbutton(
+        header,
+        text="Use proxy for network requests",
+        variable=state["proxy_enabled"],
+    ).grid(row=0, column=0, sticky="w", padx=5, pady=(0, 8))
+
+    ttk.Button(
+        header,
+        text="Refresh detection",
+        command=lambda: _refresh_detected_proxy(state),
+        style="Secondary.TButton",
+    ).grid(row=0, column=1, sticky="e", padx=5, pady=(0, 8))
+
+    body = ttk.Frame(card, style="Section.TFrame")
+    body.grid(row=1, column=0, sticky="nsew")
+    body.columnconfigure(0, weight=1)
+
+    ttk.Label(body, text="Detected system proxy:", style="TLabel").grid(row=0, column=0, sticky="w")
+    ttk.Label(
+        body,
+        textvariable=state["proxy_detected_label"],
+        style="Small.TLabel",
+        justify="left",
+    ).grid(row=1, column=0, sticky="w", padx=(12, 0), pady=(0, 6))
+
+    ttk.Label(body, text="Effective proxy in use:", style="TLabel").grid(row=2, column=0, sticky="w")
+    ttk.Label(
+        body,
+        textvariable=state["proxy_effective_label"],
+        style="Small.TLabel",
+        justify="left",
+    ).grid(row=3, column=0, sticky="w", padx=(12, 0), pady=(0, 10))
+
+    ttk.Label(body, text="Custom override (optional):", style="TLabel").grid(row=4, column=0, sticky="w")
+    override_entry = ttk.Entry(body, textvariable=state["proxy_override"], width=50)
+    override_entry.grid(row=5, column=0, sticky="ew", pady=5)
+    state["proxy_override_entry"] = override_entry
+
+    ttk.Label(
+        body,
+        text="Leave blank to rely on detected values. Applies to both HTTP and HTTPS.",
+        style="Small.TLabel",
+        wraplength=420,
+        justify="left",
+    ).grid(row=6, column=0, sticky="w")
+
+
+def _build_maintenance_section(parent, state) -> None:
+    card = ttk.Frame(parent, style="Section.TFrame", padding=12)
+    card.grid(row=0, column=0, sticky="nsew")
+    card.columnconfigure(0, weight=1)
+
+    primary_row = ttk.Frame(card, style="Section.TFrame")
+    primary_row.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+    primary_row.columnconfigure(2, weight=1)
+
+    ttk.Button(primary_row, text="Save Settings", command=lambda: _save_settings(state), style="TButton").grid(
+        row=0, column=0, padx=(0, 8)
+    )
+    ttk.Button(primary_row, text="Open Config Folder", command=open_config_folder, style="TButton").grid(
+        row=0, column=1, padx=(0, 8)
+    )
+
+    secondary_row = ttk.Frame(card, style="Section.TFrame")
+    secondary_row.grid(row=1, column=0, sticky="ew")
+    secondary_row.columnconfigure(3, weight=1)
+
+    ttk.Button(
+        secondary_row,
+        text="Reset Defaults",
+        command=lambda: state["reset_config_callback"](),
+        style="Secondary.TButton",
+    ).grid(row=0, column=0, padx=(0, 8), pady=5)
+    ttk.Button(
+        secondary_row,
+        text="Reset Token Usage",
+        command=lambda: _reset_token_usage(state),
+        style="Secondary.TButton",
+    ).grid(row=0, column=1, padx=(0, 8), pady=5)
+    ttk.Button(
+        secondary_row,
+        text="Reset Analyzed Stats",
+        command=lambda: _reset_global_stats(state),
+        style="Secondary.TButton",
+    ).grid(row=0, column=2, padx=(0, 8), pady=5)
+
+def _update_proxy_controls(state) -> None:
+    entry = state.get("proxy_override_entry")
+    if entry is None:
+        return
+    entry_state = "normal" if state.get("proxy_enabled") and state["proxy_enabled"].get() else "disabled"
+    entry.config(state=entry_state)
+
+
+def _update_proxy_effective_label(state) -> None:
+    if "proxy_effective_label" not in state:
+        return
+    enabled_var = state.get("proxy_enabled")
+    override_var = state.get("proxy_override")
+    enabled = bool(enabled_var.get()) if enabled_var is not None else True
+    override = override_var.get().strip() if override_var is not None else ""
+    proxies = get_requests_proxies(enabled=enabled, override=override or None)
+    state["proxy_effective_label"].set(_format_proxy_mapping(proxies))
+
+
+def _apply_proxy_preferences(state, *, force: bool = False) -> None:
+    if "proxy_enabled" not in state or "proxy_override" not in state:
+        return
+
+    enabled = bool(state["proxy_enabled"].get())
+    override_value = state["proxy_override"].get().strip()
+    last_settings = state.get("_proxy_last_settings") or (None, None)
+    current_settings = (enabled, override_value)
+
+    if force or current_settings != last_settings:
+        set_proxy_preferences(enabled, override_value or None)
+        state["_proxy_last_settings"] = current_settings
+
+    _update_proxy_controls(state)
+    _update_proxy_effective_label(state)
+
+
+def _refresh_detected_proxy(state) -> None:
+    detected = reload_system_proxies()
+    if "proxy_detected_label" in state:
+        state["proxy_detected_label"].set(_format_proxy_mapping(detected))
+    configure_global_proxy(force=True)
+    _update_proxy_effective_label(state)
+
+
+def _update_provider_status_labels(state) -> None:
+    openai_label = state.get("openai_status_label")
+    if openai_label is not None:
+        is_set = bool(state.get("openai_api_key").get()) if "openai_api_key" in state else False
+        openai_label.configure(text="Ready" if is_set else "Not set")
+
+    openrouter_label = state.get("openrouter_status_label")
+    if openrouter_label is not None:
+        is_set = bool(state.get("openrouter_api_key").get()) if "openrouter_api_key" in state else False
+        openrouter_label.configure(text="Ready" if is_set else "Not set")
+
+
 def append_monitor_colored(state, message: str, level: str = "info") -> None:
     """Append a colored message to the log."""
     formatted = f"[{level.upper()}] {message}"
@@ -1147,6 +1541,9 @@ def _copy_monitor(state) -> None:
     """Copy the activity log content to the clipboard."""
     if "log_text" in state:
         text = state["log_text"].get("1.0", "end")
+        if pyperclip is None:
+            set_status(state, "Clipboard support not available (install pyperclip).")
+            return
         pyperclip.copy(text)
         set_status(state, "Log copied to clipboard.")
 
@@ -1171,29 +1568,35 @@ def _show_about(state) -> None:
     root = state.get("root")
     top = tk.Toplevel(root)
     top.title("About Altomatic")
-    top.geometry(_scaled_geometry(top, 420, 240))
+    top.geometry("520x320")
     top.resizable(False, False)
     current_theme = state["ui_theme"].get()
-    palette = PALETTE.get(current_theme, PALETTE["Default Light"])
+    palette = PALETTE.get(current_theme, PALETTE["Arctic Light"])
     top.configure(bg=palette["background"])
     _apply_window_icon(top)
     apply_theme_to_window(top, current_theme)
 
-    ttk.Label(top, text="Altomatic", font=("Segoe UI", 14, "bold")).pack(pady=(10, 5))
+    wrapper = ttk.Frame(top, padding=20, style="Section.TFrame")
+    wrapper.pack(fill="both", expand=True)
+    wrapper.columnconfigure(0, weight=1)
+
+    ttk.Label(wrapper, text="Altomatic", font=("Segoe UI Semibold", 16)).grid(row=0, column=0, sticky="w")
     ttk.Label(
-        top,
-        text=(
-            "Created by Mehdi\n\n"
-            "An image captioning tool powered by GPT-4.1-nano.\n"
-            "Name and describe your images with AI.\n\n"
-        ),
-    ).pack()
+        wrapper,
+        text="Created by Mehdi",
+        style="Small.TLabel",
+    ).grid(row=1, column=0, sticky="w", pady=(2, 12))
 
-    def open_github():
-        webbrowser.open_new("https://github.com/MehdiDevX")
+    description = (
+        "Altomatic helps you batch-generate file names and alt text for images using multimodal LLMs.\n"
+        "Choose your provider, drop images, and let the app handle OCR, compression, and AI prompts."
+    )
+    ttk.Label(wrapper, text=description, wraplength=460, justify="left").grid(row=2, column=0, sticky="w")
 
-    link = ttk.Label(top, text="Visit GitHub Repository", style="Accent.TLabel", cursor="hand2")
-    link.pack()
-    link.bind("<Button-1>", lambda _event: open_github())
+    link = ttk.Label(wrapper, text="Visit GitHub Repository", style="Accent.TLabel", cursor="hand2")
+    link.grid(row=3, column=0, sticky="w", pady=(16, 0))
+    link.bind("<Button-1>", lambda _event: webbrowser.open_new("https://github.com/MehdiDevX"))
 
-    ttk.Button(top, text="Close", command=top.destroy).pack(pady=10)
+    ttk.Button(wrapper, text="Close", command=top.destroy, style="Accent.TButton").grid(
+        row=4, column=0, sticky="e", pady=(20, 0)
+    )
