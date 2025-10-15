@@ -6,6 +6,8 @@ import os
 import shutil
 from queue import Queue
 
+from PIL import UnidentifiedImageError
+
 from ..models import DEFAULT_PROVIDER, get_provider_label
 from ..services.ai import describe_image
 from ..services.providers.exceptions import AuthenticationError, APIError, NetworkError
@@ -46,10 +48,22 @@ def process_images(state) -> None:
             ui_queue.put({"type": "error", "title": "Invalid Input", "value": "Input path does not exist."})
             return
 
+        base_output_folder = get_output_folder(state)
+        if not os.access(base_output_folder, os.W_OK):
+            ui_queue.put(
+                {
+                    "type": "error",
+                    "title": "Permission Error",
+                    "value": f"Cannot write to the selected output directory:\n{base_output_folder}",
+                }
+            )
+            return
+
         if state["input_type"].get() == "File":
             images = [input_path]
         else:
-            images = get_all_images(input_path)
+            recursive = state["include_subdirectories"].get()
+            images = get_all_images(input_path, recursive)
 
         if not images:
             ui_queue.put({"type": "error", "title": "No Images", "value": "No valid image files found."})
@@ -58,7 +72,6 @@ def process_images(state) -> None:
         ui_queue.put({"type": "log", "value": f"Found {len(images)} images to process.", "level": "info"})
         state["total_tokens"].set(0)
 
-        base_output_folder = get_output_folder(state)
         os.makedirs(base_output_folder, exist_ok=True)
 
         session_name = generate_session_folder_name()
@@ -106,6 +119,10 @@ def process_images(state) -> None:
                     summary_file.write(f"Alt: {result['alt']}\n\n")
                     ui_queue.put({"type": "log", "value": f"-> {final_name}", "level": "success"})
 
+                except UnidentifiedImageError:
+                    exc_message = "Unsupported or corrupted image format."
+                    failed_items.append((image_path, exc_message))
+                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc_message}", "level": "error"})
                 except AuthenticationError as exc:
                     failed_items.append((image_path, str(exc)))
                     ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc}", "level": "error"})

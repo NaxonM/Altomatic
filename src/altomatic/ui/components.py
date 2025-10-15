@@ -539,6 +539,7 @@ def build_ui(root, user_config):
         # Config-backed state
         "input_type": tk.StringVar(value="Folder"),
         "input_path": tk.StringVar(value=""),
+        "include_subdirectories": tk.BooleanVar(value=False),
         "custom_output_path": tk.StringVar(value=user_config.get("custom_output_path", "")),
         "output_folder_option": tk.StringVar(value=user_config.get("output_folder_option", "Same as input")),
         "openai_api_key": tk.StringVar(value=user_config.get("openai_api_key", "")),
@@ -780,15 +781,19 @@ def _build_tab_workflow(frame, state) -> None:
         row=1, column=2, padx=5, pady=5
     )
 
+    ttk.Checkbutton(input_card, text="Include subdirectories", variable=state["include_subdirectories"]).grid(
+        row=2, column=1, sticky="w", padx=5, pady=5
+    )
+
     ttk.Label(input_card, textvariable=state["image_count"], style="Small.TLabel").grid(
-        row=2, column=1, columnspan=2, sticky="w", padx=5
+        row=3, column=1, columnspan=2, sticky="w", padx=5
     )
 
     ttk.Label(input_card, text="Context notes:", style="TLabel").grid(
-        row=3, column=0, sticky="nw", padx=5, pady=(8, 0)
+        row=4, column=0, sticky="nw", padx=5, pady=(8, 0)
     )
     context_frame = ttk.Frame(input_card, style="Section.TFrame")
-    context_frame.grid(row=3, column=1, columnspan=2, sticky="ew", padx=5, pady=(8, 5))
+    context_frame.grid(row=4, column=1, columnspan=2, sticky="ew", padx=5, pady=(8, 5))
     context_frame.columnconfigure(0, weight=1)
     context_entry = tk.Text(context_frame, height=6, wrap="word", relief="solid", borderwidth=1)
     context_entry.grid(row=0, column=0, sticky="nsew")
@@ -798,9 +803,9 @@ def _build_tab_workflow(frame, state) -> None:
 
     char_count_var = tk.StringVar(value="0 characters")
     state["context_char_count"] = char_count_var
-    ttk.Label(input_card, textvariable=char_count_var, style="Small.TLabel").grid(row=4, column=1, sticky="w", padx=5)
+    ttk.Label(input_card, textvariable=char_count_var, style="Small.TLabel").grid(row=5, column=1, sticky="w", padx=5)
     ttk.Button(input_card, text="Clear", command=lambda: _clear_context(state), style="Secondary.TButton").grid(
-        row=4, column=2, sticky="e", padx=5
+        row=5, column=2, sticky="e", padx=5
     )
 
     def update_char_count(event=None):
@@ -1249,12 +1254,13 @@ def _select_input(state) -> None:
     if state["input_type"].get() == "Folder":
         path = filedialog.askdirectory()
     else:
-        path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp")])
+        path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp *.heic *.heif")])
     if path:
         cleanup_temp_drop_folder(state)
         state["input_path"].set(path)
         if state["input_type"].get() == "Folder":
-            count = get_image_count_in_folder(path)
+            recursive = state["include_subdirectories"].get()
+            count = get_image_count_in_folder(path, recursive)
         else:
             count = 1
 
