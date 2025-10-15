@@ -28,13 +28,14 @@ jobs:
 
       - name: Package build output
         run: |
-          $distDir = Join-Path (Get-Location) "dist"
-          $appDir = Join-Path $distDir "Altomatic"
-          if (-not (Test-Path $appDir)) {
-            Write-Error "Build output directory not found: $appDir"
+          $distDir = Join-Path $env:GITHUB_WORKSPACE "dist"
+          if (-not (Test-Path $distDir)) {
+            Write-Error "Build output directory not found: $distDir"
             exit 1
           }
-          Compress-Archive -Path "$appDir\*" -DestinationPath "Altomatic-${{ github.ref_name }}.zip"
+          Push-Location $distDir
+          Compress-Archive -Path "Altomatic\*" -DestinationPath "$env:GITHUB_WORKSPACE\Altomatic-${{ github.ref_name }}.zip"
+          Pop-Location
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
