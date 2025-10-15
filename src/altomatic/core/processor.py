@@ -8,6 +8,7 @@ from queue import Queue
 
 from ..models import DEFAULT_PROVIDER, get_provider_label
 from ..services.ai import describe_image
+from ..services.providers.exceptions import AuthenticationError, APIError, NetworkError
 from ..ui import cleanup_temp_drop_folder
 from ..utils.images import (
     generate_output_filename,
@@ -105,9 +106,15 @@ def process_images(state) -> None:
                     summary_file.write(f"Alt: {result['alt']}\n\n")
                     ui_queue.put({"type": "log", "value": f"-> {final_name}", "level": "success"})
 
-                except Exception as exc:
+                except AuthenticationError as exc:
                     failed_items.append((image_path, str(exc)))
                     ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc}", "level": "error"})
+                except (APIError, NetworkError) as exc:
+                    failed_items.append((image_path, str(exc)))
+                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc}", "level": "error"})
+                except Exception as exc:
+                    failed_items.append((image_path, str(exc)))
+                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: An unexpected error occurred: {exc}", "level": "error"})
 
                 ui_queue.put({"type": "progress", "value": index + 1})
 
