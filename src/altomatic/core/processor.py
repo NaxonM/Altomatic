@@ -99,7 +99,7 @@ def process_images(state) -> None:
                     result = describe_image(state, image_path)
 
                     if not result or "name" not in result or "alt" not in result:
-                        raise ValueError("Invalid or empty response from the model.")
+                        raise APIError("Invalid or empty response from the model.")
 
                     base_name = slugify(result["name"])[:100]
                     if not base_name:
@@ -132,10 +132,7 @@ def process_images(state) -> None:
                     exc_message = "Unsupported or corrupted image format."
                     failed_items.append((image_path, exc_message))
                     ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc_message}", "level": "error"})
-                except AuthenticationError as exc:
-                    failed_items.append((image_path, str(exc)))
-                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc}", "level": "error"})
-                except (APIError, NetworkError) as exc:
+                except (AuthenticationError, APIError, NetworkError) as exc:
                     failed_items.append((image_path, str(exc)))
                     ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc}", "level": "error"})
                 except Exception as exc:
