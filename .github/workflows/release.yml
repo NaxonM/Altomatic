@@ -22,6 +22,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
 
+      - name: Smoke test sources
+        run: |
+          python -m compileall -q src
+          python -c "import sys; sys.path.insert(0, 'src'); import altomatic; import altomatic.utils; import altomatic.ui"
+
       - name: Build executable
         run: |
           pyinstaller Altomatic.spec
@@ -31,6 +36,13 @@ jobs:
           $distDir = Join-Path $env:GITHUB_WORKSPACE "dist"
           if (-not (Test-Path $distDir)) {
             Write-Error "Build output directory not found: $distDir"
+            exit 1
+          }
+          $appDir = Join-Path $distDir "Altomatic"
+          if (-not (Test-Path $appDir)) {
+            Write-Host "Contents of dist directory:" -ForegroundColor Yellow
+            Get-ChildItem -Force $distDir
+            Write-Error "Expected application directory not found: $appDir"
             exit 1
           }
           Push-Location $distDir

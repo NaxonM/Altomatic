@@ -7,9 +7,12 @@ import math
 import os
 import random
 import string
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
+from shutil import which
 from typing import Literal
 
 from PIL import Image, ImageOps
@@ -214,14 +217,60 @@ def slugify(text: str) -> str:
     return text
 
 
+def find_tesseract_executable(preferred_path: str = "") -> str | None:
+    if preferred_path:
+        candidate = Path(preferred_path).expanduser()
+        if candidate.is_file():
+            return str(candidate)
+        if candidate.is_dir():
+            exe_path = candidate / "tesseract.exe"
+            if exe_path.is_file():
+                return str(exe_path)
+
+    env_path = which("tesseract")
+    if env_path:
+        return env_path
+
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    if bundle_dir:
+        bundle_candidate = Path(bundle_dir) / "tesseract.exe"
+        if bundle_candidate.is_file():
+            return str(bundle_candidate)
+
+    if os.name == "nt":
+        search_roots = [
+            os.environ.get("TESSERACT_DIR"),
+            os.path.join(os.environ.get("ProgramFiles", ""), "Tesseract-OCR"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Tesseract-OCR"),
+        ]
+        for root in search_roots:
+            if not root:
+                continue
+            exe_path = Path(root) / "tesseract.exe"
+            if exe_path.is_file():
+                return str(exe_path)
+
+    return None
+
+
 def extract_text_from_image(image_path: str, tesseract_path: str = "", lang: str = "eng") -> str:
     try:
         import pytesseract
+    except Exception as exc:
+        return f"⚠️ OCR failed: {exc}"
 
-        if tesseract_path:
-            pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    not_found_error = getattr(pytesseract, "TesseractNotFoundError", RuntimeError)
+
+    try:
+        resolved_path = find_tesseract_executable(tesseract_path)
+        if resolved_path:
+            pytesseract.pytesseract.tesseract_cmd = resolved_path
+        elif tesseract_path:
+            return "⚠️ OCR unavailable: Tesseract executable not found."
         with Image.open(image_path) as image:
             text = pytesseract.image_to_string(image, lang=lang)
         return text.strip()
+    except not_found_error:
+        return "⚠️ OCR unavailable: Tesseract executable not found. Configure the path in Settings."
     except Exception as exc:
         return f"⚠️ OCR failed: {exc}"

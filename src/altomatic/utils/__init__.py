@@ -9,6 +9,7 @@ from .images import (
     get_all_images,
     get_image_count_in_folder,
     get_output_folder,
+    find_tesseract_executable,
     image_to_base64,
     preprocess_image_for_llm,
     slugify,
@@ -38,4 +39,5 @@ __all__ = [
     "get_output_folder",
     "slugify",
     "extract_text_from_image",
+    "find_tesseract_executable",
 ]

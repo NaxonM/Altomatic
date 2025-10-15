@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
@@ -7,6 +8,8 @@ SPEC_FILE = Path(globals().get("__file__", "Altomatic.spec")).resolve()
 BASE_DIR = SPEC_FILE.parent
 SRC_DIR = BASE_DIR / "src"
 PKG_DIR = SRC_DIR / "altomatic"
+
+sys.path.insert(0, str(SRC_DIR))
 
 datas = [
     (str(PKG_DIR / "data"), "altomatic/data"),
@@ -50,4 +53,17 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=[str(PKG_DIR / "resources" / "altomatic_icon.ico")],
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="Altomatic",
+    distpath=str(BASE_DIR / "dist"),
+    workpath=str(BASE_DIR / "build"),
 )
