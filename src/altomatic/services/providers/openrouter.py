@@ -9,6 +9,7 @@ from .base import BaseProvider
 from .exceptions import APIError, AuthenticationError, NetworkError
 from ...ui import append_monitor_colored, update_token_label
 from ...models import get_provider_hint
+from ...utils.text import extract_json_from_string
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_HEADERS = {
@@ -71,6 +72,10 @@ class OpenRouterProvider(BaseProvider):
 
             append_monitor_colored(state, f"[API RAW OUTPUT]\n{response_text}", "info")
 
+            json_result = extract_json_from_string(response_text)
+            if not json_result:
+                raise APIError(f"Model response was not valid JSON.")
+
             usage_data = data.get("usage")
             if isinstance(usage_data, dict):
                 total_tokens = usage_data.get("total_tokens") or usage_data.get("total")
@@ -80,22 +85,31 @@ class OpenRouterProvider(BaseProvider):
                     state["total_tokens"].set(previous + int(total_tokens))
                     update_token_label(state)
 
-            return json.loads(response_text)
+            return json_result
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
                 raise AuthenticationError("Invalid OpenRouter API key.") from e
-            else:
-                try:
-                    error_data = e.response.json()
-                    message = error_data.get("error", {}).get("message", e.response.text)
-                except json.JSONDecodeError:
-                    message = e.response.text
-                raise APIError(f"OpenRouter API error ({e.response.status_code}): {message}") from e
+
+            message = e.response.text
+            try:
+                error_data = e.response.json()
+                error_details = error_data.get("error", {})
+
+                # Dig for a more specific message from the underlying provider
+                provider_message = error_details.get("provider_error", {}).get("message")
+                if provider_message:
+                    message = provider_message
+                else:
+                    message = error_details.get("message", e.response.text)
+
+            except json.JSONDecodeError:
+                pass # Use the raw text if JSON parsing fails
+
+            raise APIError(f"OpenRouter API error ({e.response.status_code}): {message}") from e
+
         except requests.exceptions.RequestException as e:
             raise NetworkError(f"Could not connect to OpenRouter API: {e}") from e
-        except json.JSONDecodeError as e:
-            raise APIError(f"Model response was not valid JSON: {e}") from e
         except Exception as e:
             raise APIError(f"An unexpected error occurred with OpenRouter: {e}") from e
 
