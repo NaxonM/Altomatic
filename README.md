@@ -11,7 +11,7 @@ Built with Python, Altomatic provides an intuitive graphical interface for batch
 
 ## Quick Start
 
-The easiest way to get started is to download the latest build from the [Releases](https://github.com/MehdiBazyar99/altomatic/releases) page.
+The easiest way to get started is to download the latest build from the [Releases](https://github.com/NaxonM/altomatic/releases) page.
 
 Once downloaded, you can run the application by simply double-clicking the `launch.bat` script. This will set up a virtual environment and install all the necessary dependencies for you.
 
@@ -45,7 +45,7 @@ Once downloaded, you can run the application by simply double-clicking the `laun
 1.  **Clone the repository:**
 
     ```bash
-    git clone https://github.com/MehdiBazyar99/altomatic.git
+    git clone https://github.com/NaxonM/altomatic.git
     cd altomatic
     ```
 
@@ -83,7 +83,7 @@ To run the application from the source code, execute the following command in th
 python -m src.altomatic
 ```
 
-Alternatively, pre-built executables are available for download from the [Releases](https://github.com/MehdiBazyar99/altomatic/releases) page.
+Alternatively, pre-built executables are available for download from the [Releases](https://github.com/NaxonM/altomatic/releases) page.
 
 ## Building from Source
 
