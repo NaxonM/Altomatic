@@ -3,7 +3,8 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
 
-BASE_DIR = Path(__file__).resolve().parent
+SPEC_FILE = Path(globals().get("__file__", "Altomatic.spec")).resolve()
+BASE_DIR = SPEC_FILE.parent
 SRC_DIR = BASE_DIR / "src"
 PKG_DIR = SRC_DIR / "altomatic"
 
