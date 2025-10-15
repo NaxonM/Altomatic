@@ -1,44 +1,57 @@
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout
-from .footer_view import FooterView
-from ..viewmodels.footer_viewmodel import FooterViewModel
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout
+from ..viewmodels.main_viewmodel import MainViewModel
 from .input_view import InputView
-from ..viewmodels.input_viewmodel import InputViewModel
 from .header_view import HeaderView
-from ..viewmodels.header_viewmodel import HeaderViewModel
+from .main_notebook_view import MainNotebookView
+from .log_view import LogView
+from .footer_view import FooterView
 
 class MainWindow(QMainWindow):
     """
     The main window shell for the PySide6 application.
     """
-    def __init__(self):
+    def __init__(self, view_model: MainViewModel):
         super().__init__()
+        self.vm = view_model
         self.setWindowTitle("Altomatic")
-        self.setGeometry(100, 100, 600, 720)
+        self.setGeometry(100, 100, 900, 720)
 
-        # Create a central widget and a layout
+        # Create a central widget and a main horizontal layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        self.main_layout = QVBoxLayout(central_widget)
+        main_hbox = QHBoxLayout(central_widget)
 
-        # --- Input View ---
-        self.input_vm = InputViewModel()
-        self.input_view = InputView(self.input_vm)
-        self.main_layout.addWidget(self.input_view)
+        # --- Left Panel ---
+        left_panel = QWidget()
+        left_vbox = QVBoxLayout(left_panel)
+        main_hbox.addWidget(left_panel, 1)
 
-        # --- Header View ---
-        self.header_vm = HeaderViewModel()
-        self.header_view = HeaderView(self.header_vm)
-        self.main_layout.addWidget(self.header_view)
+        # --- Right Panel ---
+        right_panel = QWidget()
+        right_vbox = QVBoxLayout(right_panel)
+        main_hbox.addWidget(right_panel)
 
-        # --- Main Content Area (Placeholder) ---
-        main_content = QWidget()
-        self.main_layout.addWidget(main_content, 1) # Add with stretch factor
+        # --- Components for the Left Panel ---
+        self.input_view = InputView(self.vm.input_vm)
+        left_vbox.addWidget(self.input_view)
 
-        # --- Footer ---
-        self.footer_vm = FooterViewModel()
-        self.footer_view = FooterView(self.footer_vm)
-        self.main_layout.addWidget(self.footer_view)
+        self.header_view = HeaderView(self.vm.header_vm)
+        left_vbox.addWidget(self.header_view)
+
+        self.main_notebook = MainNotebookView(
+            self.vm.workflow_vm,
+            self.vm.prompts_model_vm,
+            self.vm.advanced_vm
+        )
+        left_vbox.addWidget(self.main_notebook, 1)
+
+        self.footer_view = FooterView(self.vm.footer_vm)
+        left_vbox.addWidget(self.footer_view)
+
+        # --- Components for the Right Panel ---
+        self.log_view = LogView(self.vm.log_vm)
+        right_vbox.addWidget(self.log_view)
 
         # Apply the stylesheet
         with open('src/app/resources/styles/generated.qss', 'r') as f:

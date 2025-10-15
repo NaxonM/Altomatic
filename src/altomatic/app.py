@@ -25,6 +25,7 @@ from .utils import configure_global_proxy, set_proxy_preferences
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from src.app.services.settings_service import SettingsService
 from src.app.views.main_window import MainWindow
+from src.app.viewmodels.main_viewmodel import MainViewModel
 
 def _scaled_geometry(widget, base_width: int, base_height: int) -> str:
     widget.update_idletasks()
@@ -62,7 +63,8 @@ def run() -> None:
 
     if use_pyside6:
         app = QApplication(sys.argv)
-        window = MainWindow()
+        main_vm = MainViewModel()
+        window = MainWindow(main_vm)
         window.show()
         sys.exit(app.exec())
     else:
