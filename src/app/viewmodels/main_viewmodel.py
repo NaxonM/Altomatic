@@ -1,4 +1,5 @@
 
+from PySide6.QtCore import QThreadPool
 from .base_viewmodel import BaseViewModel
 from .input_viewmodel import InputViewModel
 from .header_viewmodel import HeaderViewModel
@@ -7,6 +8,10 @@ from .log_viewmodel import LogViewModel
 from .workflow_viewmodel import WorkflowViewModel
 from .prompts_model_viewmodel import PromptsModelViewModel
 from .advanced_viewmodel import AdvancedViewModel
+from ..worker import Worker
+from ..views.results_view import ResultsView
+from .results_viewmodel import ResultsViewModel
+from typing import List, Dict, Any
 
 class MainViewModel(BaseViewModel):
     """
@@ -24,21 +29,30 @@ class MainViewModel(BaseViewModel):
         self.prompts_model_vm = PromptsModelViewModel()
         self.advanced_vm = AdvancedViewModel()
 
+        self.thread_pool = QThreadPool()
         self._connect_signals()
 
     def _connect_signals(self):
         """Connects signals between different ViewModels."""
-        # Example: When the footer's process button is clicked, log a message
-        self.footer_vm.process_button_clicked.connect(
-            lambda: self.log_vm.add_log("Image processing started...")
-        )
+        self.footer_vm.process_button_clicked.connect(self.start_processing)
 
-        # Example: When the input path changes, update the header
         self.input_vm.input_path_changed.connect(
             lambda path: self.header_vm.update_summaries({"summary_output": f"Output: Custom → {path}"})
         )
 
-        # Example of error handling
         self.input_vm.errorOccurred.connect(self.log_vm.add_log)
         self.footer_vm.errorOccurred.connect(self.log_vm.add_log)
         self.log_vm.errorOccurred.connect(self.log_vm.add_log)
+
+    def start_processing(self):
+        """Starts the image processing in a background thread."""
+        worker = Worker(self)
+        worker.signals.finished.connect(self.show_results)
+        self.thread_pool.start(worker)
+
+    def show_results(self, results: List[Dict[str, Any]]):
+        """Displays the results window."""
+        if self.workflow_vm.output_vm.show_results_table and results:
+            results_vm = ResultsViewModel(results)
+            self.results_view = ResultsView(results_vm)
+            self.results_view.show()
