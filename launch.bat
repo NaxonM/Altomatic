@@ -121,7 +121,7 @@ if defined TESSERACT_DIR (
 )
 
 echo Launching Altomatic...
-"%VENV_DIR%\Scripts\python.exe" -m altomatic
+"%VENV_DIR%\Scripts\python.exe" -m src.core
 set "APP_EXIT_CODE=%errorlevel%"
 
 if %APP_EXIT_CODE% neq 0 (
