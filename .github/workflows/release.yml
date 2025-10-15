@@ -28,7 +28,13 @@ jobs:
 
       - name: Package build output
         run: |
-          Compress-Archive -Path "dist/Altomatic/*" -DestinationPath "Altomatic-${{ github.ref_name }}.zip"
+          $distDir = Join-Path (Get-Location) "dist"
+          $appDir = Join-Path $distDir "Altomatic"
+          if (-not (Test-Path $appDir)) {
+            Write-Error "Build output directory not found: $appDir"
+            exit 1
+          }
+          Compress-Archive -Path "$appDir\*" -DestinationPath "Altomatic-${{ github.ref_name }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
