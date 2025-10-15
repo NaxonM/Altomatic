@@ -13,6 +13,7 @@ from .config.manager import DEFAULT_CONFIG, load_config, reset_config, save_conf
 from .core.processor import process_images
 from .ui.components import append_monitor_colored, build_ui, set_status
 from .ui.dragdrop import configure_drag_and_drop
+from .ui.results import create_results_window
 from .ui.themes import apply_theme
 from .utils import configure_global_proxy, set_proxy_preferences
 
@@ -120,6 +121,10 @@ def run() -> None:
                 state["process_button"].config(state="normal")
                 set_status(state, "✅ Done!")
                 messagebox.showinfo("Done", value)
+            elif msg_type == "done_with_results":
+                state["process_button"].config(state="normal")
+                set_status(state, "✅ Done!")
+                create_results_window(state, message.get("results"))
             elif msg_type == "error":
                 state["process_button"].config(state="normal")
                 messagebox.showerror(message.get("title", "Error"), value)

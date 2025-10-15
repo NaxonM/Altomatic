@@ -539,7 +539,8 @@ def build_ui(root, user_config):
         # Config-backed state
         "input_type": tk.StringVar(value="Folder"),
         "input_path": tk.StringVar(value=""),
-        "include_subdirectories": tk.BooleanVar(value=False),
+        "include_subdirectories": tk.BooleanVar(value=user_config.get("include_subdirectories", False)),
+        "show_results_table": tk.BooleanVar(value=user_config.get("show_results_table", True)),
         "custom_output_path": tk.StringVar(value=user_config.get("custom_output_path", "")),
         "output_folder_option": tk.StringVar(value=user_config.get("output_folder_option", "Same as input")),
         "openai_api_key": tk.StringVar(value=user_config.get("openai_api_key", "")),
@@ -907,13 +908,20 @@ def _build_tab_workflow(frame, state) -> None:
     ttk.Button(output_card, text="Browse", command=lambda: _select_output_folder(state), style="TButton").grid(
         row=1, column=2, padx=5, pady=5
     )
+
+    ttk.Checkbutton(
+        output_card,
+        text="Show interactive results table after processing",
+        variable=state["show_results_table"],
+    ).grid(row=2, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 0))
+
     ttk.Label(
         output_card,
         text="Alt-text report and renamed images will be stored in a session folder.",
         style="Small.TLabel",
         wraplength=420,
         justify="left",
-    ).grid(row=2, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 0))
+    ).grid(row=3, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 0))
 
 
 def _build_tab_prompts_model(frame, state) -> None:

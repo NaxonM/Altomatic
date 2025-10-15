@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 from queue import Queue
+from typing import Dict, Any, List
 
 from PIL import UnidentifiedImageError
 
@@ -24,6 +25,7 @@ from ..utils.images import (
 def process_images(state) -> None:
     """The core image processing pipeline."""
     ui_queue: Queue = state["ui_queue"]
+    results: List[Dict[str, Any]] = []
 
     try:
         provider_var = state.get("llm_provider")
@@ -119,6 +121,13 @@ def process_images(state) -> None:
                     summary_file.write(f"Alt: {result['alt']}\n\n")
                     ui_queue.put({"type": "log", "value": f"-> {final_name}", "level": "success"})
 
+                    results.append({
+                        "original_path": image_path,
+                        "original_filename": os.path.basename(image_path),
+                        "new_filename": final_name,
+                        "alt_text": result["alt"]
+                    })
+
                 except UnidentifiedImageError:
                     exc_message = "Unsupported or corrupted image format."
                     failed_items.append((image_path, exc_message))
@@ -161,7 +170,11 @@ def process_images(state) -> None:
             f"Total images analyzed overall: {new_total}"
         )
         ui_queue.put({"type": "log", "value": message.replace("\n", " | "), "level": "info"})
-        ui_queue.put({"type": "done", "value": message})
+
+        if state["show_results_table"].get():
+            ui_queue.put({"type": "done_with_results", "value": message, "results": results})
+        else:
+            ui_queue.put({"type": "done", "value": message})
 
     except Exception as exc:
         ui_queue.put(
