@@ -1,7 +1,7 @@
 
 from PySide6.QtCore import Signal
 from .base_viewmodel import BaseViewModel
-from src.altomatic.config.manager import open_config_folder, save_config, reset_config
+from src.core.config.manager import open_config_folder, save_config, reset_config
 
 class MaintenanceViewModel(BaseViewModel):
     """

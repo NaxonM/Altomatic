@@ -1,7 +1,7 @@
 
 from PySide6.QtCore import Signal, Property, str
 from .base_viewmodel import BaseViewModel
-from src.altomatic.prompts import load_prompts
+from src.core.prompts import load_prompts
 
 class PromptsViewModel(BaseViewModel):
     """

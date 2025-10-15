@@ -1,8 +1,8 @@
 
 from PySide6.QtCore import Signal, Property, str, QObject
 from .base_viewmodel import BaseViewModel
-from src.altomatic.prompts import load_prompts, save_prompts
-from src.altomatic.utils import slugify
+from src.core.prompts import load_prompts, save_prompts
+from src.core.utils import slugify
 
 class PromptEditorViewModel(BaseViewModel):
     """

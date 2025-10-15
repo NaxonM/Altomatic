@@ -1,6 +1,6 @@
 
 from PySide6.QtCore import QRunnable, Slot, QObject, Signal
-from src.altomatic.core.processor import process_images
+from src.core.core.processor import process_images
 from .viewmodels.main_viewmodel import MainViewModel
 from typing import List, Dict, Any
 

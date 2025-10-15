@@ -1,7 +1,7 @@
 
 from PySide6.QtCore import Signal, Property, str
 from .base_viewmodel import BaseViewModel
-from src.altomatic.models import AVAILABLE_PROVIDERS, get_provider_label, get_default_model, get_models_for_provider
+from src.core.models import AVAILABLE_PROVIDERS, get_provider_label, get_default_model, get_models_for_provider
 import pyperclip
 
 class ProviderViewModel(BaseViewModel):

@@ -1,7 +1,7 @@
 
 from PySide6.QtCore import Signal, Property, str, bool
 from .base_viewmodel import BaseViewModel
-from src.altomatic.utils import detect_system_proxies, get_requests_proxies, reload_system_proxies, configure_global_proxy, set_proxy_preferences
+from src.core.utils import detect_system_proxies, get_requests_proxies, reload_system_proxies, configure_global_proxy, set_proxy_preferences
 
 class NetworkViewModel(BaseViewModel):
     """

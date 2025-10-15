@@ -41,9 +41,9 @@ def _clean_previous_artifacts() -> None:
 
 def _collect_data_arguments() -> list[str]:
     separator = ";" if os.name == "nt" else ":"
-    data_dir = SRC_DIR / "altomatic" / "data"
+    data_dir = SRC_DIR / "core" / "data"
     resources_dir = SRC_DIR / "app" / "resources"
-    args = [f"{data_dir}{separator}altomatic/data"]
+    args = [f"{data_dir}{separator}core/data"]
     if resources_dir.exists():
         args.append(f"{resources_dir}{separator}app/resources")
     return args
@@ -74,11 +74,11 @@ def build_executable(python: str, name: str, clean: bool) -> Path:
         "--icon",
         str(ICON_PATH),
         "--collect-data",
-        "altomatic",
+        "core",
         "--collect-data",
         "app",
         *[arg for data_arg in _collect_data_arguments() for arg in ("--add-data", data_arg)],
-        str(SRC_DIR / "altomatic" / "__main__.py"),
+        str(SRC_DIR / "core" / "__main__.py"),
     ]
 
     print("Running:", " ".join(command))
