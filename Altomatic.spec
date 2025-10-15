@@ -1,13 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_data_files
 
-datas = [('C:\\Users\\Mehdi\\Documents\\GitHub\\Altomatic\\src\\altomatic\\data', 'altomatic/data'), ('C:\\Users\\Mehdi\\Documents\\GitHub\\Altomatic\\src\\altomatic\\resources', 'altomatic/resources')]
-datas += collect_data_files('altomatic')
+BASE_DIR = Path(__file__).resolve().parent
+SRC_DIR = BASE_DIR / "src"
+PKG_DIR = SRC_DIR / "altomatic"
+
+datas = [
+    (str(PKG_DIR / "data"), "altomatic/data"),
+    (str(PKG_DIR / "resources"), "altomatic/resources"),
+]
+datas += collect_data_files("altomatic")
 
 
 a = Analysis(
-    ['C:\\Users\\Mehdi\\Documents\\GitHub\\Altomatic\\src\\altomatic\\__main__.py'],
-    pathex=[],
+    [str(PKG_DIR / "__main__.py")],
+    pathex=[str(SRC_DIR)],
     binaries=[],
     datas=datas,
     hiddenimports=[],
@@ -39,5 +48,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['C:\\Users\\Mehdi\\Documents\\GitHub\\Altomatic\\src\\altomatic\\resources\\altomatic_icon.ico'],
+    icon=[str(PKG_DIR / "resources" / "altomatic_icon.ico")],
 )
