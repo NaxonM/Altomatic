@@ -1,0 +1,6 @@
+
+{
+    "feature_flags": {
+        "use_pyside6_about_window": true
+    }
+}

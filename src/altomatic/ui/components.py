@@ -1,3 +1,4 @@
+
 """UI construction helpers."""
 
 from __future__ import annotations
@@ -7,6 +8,15 @@ import shutil
 import tkinter as tk
 from importlib import resources
 from tkinter import filedialog, messagebox, simpledialog, ttk
+import sys
+
+# Add the project root to the Python path for PySide6 imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
+from PySide6.QtWidgets import QApplication
+from src.app.services.settings_service import SettingsService
+from src.app.views.about_view import AboutView
+from src.app.viewmodels.about_viewmodel import AboutViewModel
 
 try:
     import pyperclip
@@ -91,9 +101,9 @@ def update_model_pricing(state) -> None:
     provider_label = get_provider_label(provider)
     model_label = details.get("label", model_id)
     vendor = details.get("vendor")
-    vendor_line = f"\nVendor: {vendor}" if vendor else ""
+    vendor_line = f"\\nVendor: {vendor}" if vendor else ""
     state["lbl_model_pricing"].config(
-        text=f"{provider_label} • {model_label}\n{format_pricing(provider, model_id)}{vendor_line}"
+        text=f"{provider_label} • {model_label}\\n{format_pricing(provider, model_id)}{vendor_line}"
     )
 
 
@@ -101,7 +111,7 @@ def _format_proxy_mapping(mapping: dict[str, str]) -> str:
     if not mapping:
         return "None"
     lines = [f"{scheme}: {value}" for scheme, value in sorted(mapping.items())]
-    return "\n".join(lines)
+    return "\\n".join(lines)
 
 
 def update_summary(state) -> None:
@@ -175,7 +185,7 @@ def update_prompt_preview(state) -> None:
     widget = state["prompt_preview"]
     widget.config(state="normal")
     widget.delete("1.0", "end")
-    widget.insert("1.0", f"{label}\n\n{template}".strip())
+    widget.insert("1.0", f"{label}\\n\\n{template}".strip())
     widget.config(state="disabled")
 
 
@@ -1578,46 +1588,63 @@ def _write_monitor_line_colored(state, log_item) -> None:
     text, level = log_item
 
     text_widget.config(state="normal")
-    text_widget.insert("end", text + "\n", level)
+    text_widget.insert("end", text + "\\n", level)
     text_widget.see("end")
     text_widget.config(state="disabled")
 
 
 def _show_about(state) -> None:
-    import webbrowser
+    settings = SettingsService()
+    use_pyside6 = settings.get("feature_flags", {}).get("use_pyside6_about_window", False)
 
-    root = state.get("root")
-    top = tk.Toplevel(root)
-    top.title("About Altomatic")
-    top.geometry("520x320")
-    top.resizable(False, False)
-    current_theme = state["ui_theme"].get()
-    palette = PALETTE.get(current_theme, PALETTE["Arctic Light"])
-    top.configure(bg=palette["background"])
-    _apply_window_icon(top)
-    apply_theme_to_window(top, current_theme)
+    if use_pyside6:
+        # Ensure a QApplication instance exists
+        if not QApplication.instance():
+            QApplication(sys.argv)
 
-    wrapper = ttk.Frame(top, padding=20, style="Section.TFrame")
-    wrapper.pack(fill="both", expand=True)
-    wrapper.columnconfigure(0, weight=1)
+        # Create and show the PySide6 About window
+        about_vm = AboutViewModel()
+        about_view = AboutView(about_vm)
 
-    ttk.Label(wrapper, text="Altomatic", font=("Segoe UI Semibold", 16)).grid(row=0, column=0, sticky="w")
-    ttk.Label(
-        wrapper,
-        text="Created by Mehdi",
-        style="Small.TLabel",
-    ).grid(row=1, column=0, sticky="w", pady=(2, 12))
+        # Load and apply the stylesheet
+        with open('src/app/resources/styles/generated.qss', 'r') as f:
+            about_view.setStyleSheet(f.read())
 
-    description = (
-        "Altomatic helps you batch-generate file names and alt text for images using multimodal LLMs.\n"
-        "Choose your provider, drop images, and let the app handle OCR, compression, and AI prompts."
-    )
-    ttk.Label(wrapper, text=description, wraplength=460, justify="left").grid(row=2, column=0, sticky="w")
+        about_view.show()
+    else:
+        import webbrowser
+        root = state.get("root")
+        top = tk.Toplevel(root)
+        top.title("About Altomatic")
+        top.geometry("520x320")
+        top.resizable(False, False)
+        current_theme = state["ui_theme"].get()
+        palette = PALETTE.get(current_theme, PALETTE["Arctic Light"])
+        top.configure(bg=palette["background"])
+        _apply_window_icon(top)
+        apply_theme_to_window(top, current_theme)
 
-    link = ttk.Label(wrapper, text="Visit GitHub Repository", style="Accent.TLabel", cursor="hand2")
-    link.grid(row=3, column=0, sticky="w", pady=(16, 0))
-    link.bind("<Button-1>", lambda _event: webbrowser.open_new("https://github.com/MehdiDevX"))
+        wrapper = ttk.Frame(top, padding=20, style="Section.TFrame")
+        wrapper.pack(fill="both", expand=True)
+        wrapper.columnconfigure(0, weight=1)
 
-    ttk.Button(wrapper, text="Close", command=top.destroy, style="Accent.TButton").grid(
-        row=4, column=0, sticky="e", pady=(20, 0)
-    )
+        ttk.Label(wrapper, text="Altomatic", font=("Segoe UI Semibold", 16)).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            wrapper,
+            text="Created by Mehdi",
+            style="Small.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(2, 12))
+
+        description = (
+            "Altomatic helps you batch-generate file names and alt text for images using multimodal LLMs.\\n"
+            "Choose your provider, drop images, and let the app handle OCR, compression, and AI prompts."
+        )
+        ttk.Label(wrapper, text=description, wraplength=460, justify="left").grid(row=2, column=0, sticky="w")
+
+        link = ttk.Label(wrapper, text="Visit GitHub Repository", style="Accent.TLabel", cursor="hand2")
+        link.grid(row=3, column=0, sticky="w", pady=(16, 0))
+        link.bind("<Button-1>", lambda _event: webbrowser.open_new("https://github.com/MehdiDevX"))
+
+        ttk.Button(wrapper, text="Close", command=top.destroy, style="Accent.TButton").grid(
+            row=4, column=0, sticky="e", pady=(20, 0)
+        )

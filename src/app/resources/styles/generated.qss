@@ -1,0 +1,50 @@
+
+/* Base Stylesheet */
+
+QWidget {
+    font-family: Segoe UI;
+    font-size: 14px;
+    color: #333333;
+    background-color: #ffffff;
+}
+
+QMainWindow {
+    background-color: #ffffff;
+}
+
+QPushButton {
+    background-color: #3498db;
+    color: #ffffff;
+    border: 1px solid #3498db;
+    padding: 8px 16px;
+    border-radius: 4px;
+}
+
+QPushButton:hover {
+    background-color: #2980b9; /* A slightly darker shade of primary */
+}
+
+QPushButton:pressed {
+    background-color: #2471a3; /* An even darker shade */
+}
+
+QLineEdit, QTextEdit {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+QLabel {
+    color: #333333;
+}
+
+#TitleLabel {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+#MutedLabel {
+    color: #868e96;
+    font-size: 12px;
+}

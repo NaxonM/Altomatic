@@ -1,0 +1,50 @@
+
+/* Base Stylesheet */
+
+QWidget {
+    font-family: {{Typography.FONT_FAMILY}};
+    font-size: {{Typography.FONT_SIZE_BASE}};
+    color: {{Colors.FOREGROUND}};
+    background-color: {{Colors.BACKGROUND}};
+}
+
+QMainWindow {
+    background-color: {{Colors.BACKGROUND}};
+}
+
+QPushButton {
+    background-color: {{Colors.PRIMARY}};
+    color: {{Colors.PRIMARY_FOREGROUND}};
+    border: 1px solid {{Colors.PRIMARY}};
+    padding: {{Spacing.SMALL}} {{Spacing.MEDIUM}};
+    border-radius: 4px;
+}
+
+QPushButton:hover {
+    background-color: #2980b9; /* A slightly darker shade of primary */
+}
+
+QPushButton:pressed {
+    background-color: #2471a3; /* An even darker shade */
+}
+
+QLineEdit, QTextEdit {
+    background-color: {{Colors.SURFACE}};
+    border: 1px solid {{Colors.SURFACE_2}};
+    padding: {{Spacing.SMALL}};
+    border-radius: 4px;
+}
+
+QLabel {
+    color: {{Colors.FOREGROUND}};
+}
+
+#TitleLabel {
+    font-size: {{Typography.FONT_SIZE_LARGE}};
+    font-weight: {{Typography.FONT_WEIGHT_BOLD}};
+}
+
+#MutedLabel {
+    color: {{Colors.MUTED}};
+    font-size: {{Typography.FONT_SIZE_SMALL}};
+}
