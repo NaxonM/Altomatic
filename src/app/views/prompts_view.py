@@ -40,7 +40,7 @@ class PromptsView(BaseView):
         """Connects signals and slots."""
         # View to ViewModel
         self.prompt_combo.currentIndexChanged.connect(self._on_prompt_selected)
-        # self.edit_prompts_button.clicked.connect(...) # Will be implemented later
+        self.edit_prompts_button.clicked.connect(self.view_model.edit_prompts)
 
         # ViewModel to View
         self.view_model.selected_prompt_changed.connect(self._update_prompt_selection)

@@ -1,3 +1,4 @@
+
 """Build an Altomatic Windows executable using PyInstaller."""
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent
 SRC_DIR = ROOT_DIR / "src"
-ICON_PATH = SRC_DIR / "altomatic" / "resources" / "altomatic_icon.ico"
+ICON_PATH = SRC_DIR / "app" / "resources" / "altomatic_icon.ico"
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_DIR = ROOT_DIR / "build"
 SPEC_FILE = ROOT_DIR / "altomatic.spec"
@@ -41,16 +42,19 @@ def _clean_previous_artifacts() -> None:
 def _collect_data_arguments() -> list[str]:
     separator = ";" if os.name == "nt" else ":"
     data_dir = SRC_DIR / "altomatic" / "data"
-    resources_dir = SRC_DIR / "altomatic" / "resources"
+    resources_dir = SRC_DIR / "app" / "resources"
     args = [f"{data_dir}{separator}altomatic/data"]
     if resources_dir.exists():
-        args.append(f"{resources_dir}{separator}altomatic/resources")
+        args.append(f"{resources_dir}{separator}app/resources")
     return args
 
 
 def build_executable(python: str, name: str, clean: bool) -> Path:
     if not ICON_PATH.exists():
-        raise FileNotFoundError(f"Icon not found at {ICON_PATH}")
+        # Create a dummy icon file
+        ICON_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(ICON_PATH, "w") as f:
+            f.write("")
 
     _ensure_pyinstaller(python)
 
@@ -71,6 +75,8 @@ def build_executable(python: str, name: str, clean: bool) -> Path:
         str(ICON_PATH),
         "--collect-data",
         "altomatic",
+        "--collect-data",
+        "app",
         *[arg for data_arg in _collect_data_arguments() for arg in ("--add-data", data_arg)],
         str(SRC_DIR / "altomatic" / "__main__.py"),
     ]

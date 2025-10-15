@@ -1,3 +1,4 @@
 pytest-qt
 ruff
 mypy
+babel

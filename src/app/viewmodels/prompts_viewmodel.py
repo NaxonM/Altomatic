@@ -9,6 +9,7 @@ class PromptsViewModel(BaseViewModel):
     """
     selected_prompt_changed = Signal(str)
     prompt_preview_text_changed = Signal(str)
+    edit_prompts_clicked = Signal()
 
     def __init__(self):
         super().__init__()
@@ -46,3 +47,6 @@ class PromptsViewModel(BaseViewModel):
         label = prompt.get("label", self.selected_prompt)
         template = prompt.get("template", "")
         self.prompt_preview_text = f"{label}\\n\\n{template}".strip()
+
+    def edit_prompts(self):
+        self.edit_prompts_clicked.emit()

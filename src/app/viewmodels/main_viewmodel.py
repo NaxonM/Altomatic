@@ -11,6 +11,8 @@ from .advanced_viewmodel import AdvancedViewModel
 from ..worker import Worker
 from ..views.results_view import ResultsView
 from .results_viewmodel import ResultsViewModel
+from ..views.prompt_editor_view import PromptEditorView
+from .prompt_editor_viewmodel import PromptEditorViewModel
 from typing import List, Dict, Any
 
 class MainViewModel(BaseViewModel):
@@ -35,6 +37,7 @@ class MainViewModel(BaseViewModel):
     def _connect_signals(self):
         """Connects signals between different ViewModels."""
         self.footer_vm.process_button_clicked.connect(self.start_processing)
+        self.prompts_model_vm.prompts_vm.edit_prompts_clicked.connect(self.open_prompt_editor)
 
         self.input_vm.input_path_changed.connect(
             lambda path: self.header_vm.update_summaries({"summary_output": f"Output: Custom → {path}"})
@@ -56,3 +59,12 @@ class MainViewModel(BaseViewModel):
             results_vm = ResultsViewModel(results)
             self.results_view = ResultsView(results_vm)
             self.results_view.show()
+
+    def open_prompt_editor(self):
+        """Opens the prompt editor window."""
+        prompt_editor_vm = PromptEditorViewModel()
+        self.prompt_editor_view = PromptEditorView(prompt_editor_vm)
+        self.prompt_editor_view.exec() # Use exec for a modal dialog
+        # Refresh prompts in case they were changed
+        self.prompts_model_vm.prompts_vm.prompts = prompt_editor_vm.prompts
+        self.prompts_model_vm.prompts_vm.update_prompt_preview()
