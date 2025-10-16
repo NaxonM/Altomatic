@@ -1,8 +1,10 @@
 
 from PySide6.QtCore import QRunnable, Slot, QObject, Signal
 from src.core.core.processor import process_images
-from .viewmodels.main_viewmodel import MainViewModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .viewmodels.main_viewmodel import MainViewModel
 
 class WorkerSignals(QObject):
     """
@@ -14,7 +16,7 @@ class Worker(QRunnable):
     """
     A worker thread for running the image processing task.
     """
-    def __init__(self, main_vm: MainViewModel):
+    def __init__(self, main_vm: "MainViewModel"):
         super().__init__()
         self.main_vm = main_vm
         self.signals = WorkerSignals()

@@ -40,6 +40,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "openrouter_model": get_default_model("openrouter"),
     "prompt_key": "default",
     "context_text": "",
+    "input_sources": [],
+    "include_subdirectories": False,
 }
 
 
@@ -108,19 +110,15 @@ def load_config() -> dict[str, Any]:
         return DEFAULT_CONFIG.copy()
 
 
-def save_config(state, geometry: str) -> None:
-    data: dict[str, Any] = {}
-    for key in DEFAULT_CONFIG:
-        if key == "window_geometry":
-            data["window_geometry"] = geometry
-        elif key == "openai_api_key":
-            plain = state["openai_api_key"].get()
-            data["openai_api_key"] = _obfuscate_api_key(plain)
-        elif key == "openrouter_api_key":
-            plain = state["openrouter_api_key"].get()
-            data["openrouter_api_key"] = _obfuscate_api_key(plain)
-        else:
-            data[key] = state[key].get()
+def save_config(state: dict[str, Any], geometry: str) -> None:
+    data: dict[str, Any] = DEFAULT_CONFIG.copy()
+    data.update(state)
+    data["window_geometry"] = geometry
+
+    openai_key = data.get("openai_api_key", "") or ""
+    openrouter_key = data.get("openrouter_api_key", "") or ""
+    data["openai_api_key"] = _obfuscate_api_key(openai_key) if openai_key else ""
+    data["openrouter_api_key"] = _obfuscate_api_key(openrouter_key) if openrouter_key else ""
 
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as fh:

@@ -22,6 +22,7 @@ class AppearanceView(BaseView):
         theme_layout.addWidget(QLabel("UI Theme:"))
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(self.view_model.themes)
+        self.theme_combo.setCurrentText(self.view_model.ui_theme)
         theme_layout.addWidget(self.theme_combo)
 
         layout.addLayout(theme_layout)
@@ -30,7 +31,9 @@ class AppearanceView(BaseView):
     def _connect_signals(self):
         """Connects signals and slots."""
         # View to ViewModel
-        self.theme_combo.currentTextChanged.connect(self.view_model.ui_theme)
+        self.theme_combo.currentTextChanged.connect(
+            lambda value: setattr(self.view_model, "ui_theme", value)
+        )
 
         # ViewModel to View
         self.view_model.ui_theme_changed.connect(self.theme_combo.setCurrentText)

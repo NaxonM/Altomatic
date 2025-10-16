@@ -1,5 +1,5 @@
 
-from PySide6.QtWidgets import QTabWidget
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout
 from .base_view import BaseView
 from ..viewmodels.workflow_viewmodel import WorkflowViewModel
 from .context_view import ContextView
@@ -16,18 +16,18 @@ class WorkflowView(BaseView):
 
     def _setup_ui(self):
         """Sets up the UI widgets and layout."""
-        layout = QTabWidget(self)
+        tab_widget = QTabWidget(self)
 
         # Create the sub-tab views
         context_view = ContextView(self.view_model.context_vm)
         processing_view = ProcessingView(self.view_model.processing_vm)
         output_view = OutputView(self.view_model.output_vm)
 
-        layout.addTab(context_view, "Context")
-        layout.addTab(processing_view, "Processing Options")
-        layout.addTab(output_view, "Output")
+        tab_widget.addTab(context_view, "Context")
+        tab_widget.addTab(processing_view, "Processing Options")
+        tab_widget.addTab(output_view, "Output")
 
-        # Add the tab widget to the main layout of the view
-        import PySide6
-        self.setLayout(PySide6.QtWidgets.QVBoxLayout())
-        self.layout().addWidget(layout)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(tab_widget)

@@ -1,5 +1,5 @@
 
-from PySide6.QtCore import Signal, Property, int, str
+from PySide6.QtCore import Signal, Property
 from .base_viewmodel import BaseViewModel
 
 class FooterViewModel(BaseViewModel):

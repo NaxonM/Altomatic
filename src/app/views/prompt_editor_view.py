@@ -58,8 +58,12 @@ class PromptEditorView(BaseView, QDialog):
     def _connect_signals(self):
         # View to ViewModel
         self.prompt_list.currentItemChanged.connect(self._on_prompt_selected)
-        self.prompt_label_edit.textChanged.connect(self.view_model.prompt_label)
-        self.prompt_template_edit.textChanged.connect(lambda: self.view_model.prompt_template(self.prompt_template_edit.toPlainText()))
+        self.prompt_label_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "prompt_label", value)
+        )
+        self.prompt_template_edit.textChanged.connect(
+            lambda: setattr(self.view_model, "prompt_template", self.prompt_template_edit.toPlainText())
+        )
 
         self.add_button.clicked.connect(self._add_prompt)
         self.delete_button.clicked.connect(self._delete_prompt)

@@ -1,5 +1,5 @@
 
-from PySide6.QtCore import Signal, Property, str, bool
+from PySide6.QtCore import Signal, Property
 from .base_viewmodel import BaseViewModel
 from src.core.utils import detect_system_proxies, get_requests_proxies, reload_system_proxies, configure_global_proxy, set_proxy_preferences
 

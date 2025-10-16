@@ -31,10 +31,24 @@ class ResultsTableModel(QAbstractTableModel):
             return self._headers[section]
         return None
 
+    def update_data(self, data: List[Dict[str, Any]]) -> None:
+        self.beginResetModel()
+        self._data = data
+        self.endResetModel()
+
 class ResultsViewModel(BaseViewModel):
     """
     ViewModel for the Results window.
     """
     def __init__(self, results: List[Dict[str, Any]]):
         super().__init__()
+        self._results = results
         self.table_model = ResultsTableModel(results)
+
+    @property
+    def results(self) -> List[Dict[str, Any]]:
+        return list(self._results)
+
+    def update_results(self, results: List[Dict[str, Any]]) -> None:
+        self._results = list(results)
+        self.table_model.update_data(self._results)

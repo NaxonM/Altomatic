@@ -1,27 +1,6 @@
 {
-  "fetched_at": 1760484602.6521654,
+  "fetched_at": 1760571238.4621425,
   "models": [
-    {
-      "id": "qwen/qwen3-vl-8b-instruct",
-      "label": "Qwen: Qwen3 VL 8B Instruct (free)",
-      "vendor": "qwen",
-      "input_price": 0.0,
-      "output_price": 0.0
-    },
-    {
-      "id": "qwen/qwen3-vl-30b-a3b-instruct",
-      "label": "Qwen: Qwen3 VL 30B A3B Instruct (free)",
-      "vendor": "qwen",
-      "input_price": 0.0,
-      "output_price": 0.0
-    },
-    {
-      "id": "qwen/qwen3-vl-235b-a22b-instruct",
-      "label": "Qwen: Qwen3 VL 235B A22B Instruct (free)",
-      "vendor": "qwen",
-      "input_price": 0.0,
-      "output_price": 0.0
-    },
     {
       "id": "mistralai/mistral-small-3.2-24b-instruct:free",
       "label": "Mistral: Mistral Small 3.2 24B (free)",

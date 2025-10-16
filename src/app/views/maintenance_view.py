@@ -41,9 +41,7 @@ class MaintenanceView(BaseView):
         # Note: Some of these actions require access to the main application state
         # and geometry, which is not directly available to this view.
         # This will require a more robust state management solution in the future.
-        self.save_button.clicked.connect(
-            lambda: self.view_model.save_settings({}, "") # Dummy state and geometry
-        )
+        self.save_button.clicked.connect(self._save_settings)
         self.open_config_button.clicked.connect(self.view_model.open_config_folder)
         self.reset_defaults_button.clicked.connect(self._confirm_reset_defaults)
 
@@ -62,5 +60,10 @@ class MaintenanceView(BaseView):
 
     def _show_reset_confirmation(self):
         QMessageBox.information(self, "Reset", "Settings reset. Please restart the application.")
-        # Ideally, this would close the application
-        self.window().close()
+
+    def _save_settings(self):
+        window = self.window()
+        if window is None:
+            return
+        geometry = f"{window.width()}x{window.height()}"
+        self.view_model.save_settings(geometry)

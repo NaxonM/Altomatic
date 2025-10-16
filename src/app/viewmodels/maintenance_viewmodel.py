@@ -1,7 +1,12 @@
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import Signal
 from .base_viewmodel import BaseViewModel
-from src.core.config.manager import open_config_folder, save_config, reset_config
+from src.core.config.manager import open_config_folder, reset_config
+
+if TYPE_CHECKING:
+    from .main_viewmodel import MainViewModel
 
 class MaintenanceViewModel(BaseViewModel):
     """
@@ -13,12 +18,13 @@ class MaintenanceViewModel(BaseViewModel):
     reset_token_usage_clicked = Signal()
     reset_analyzed_stats_clicked = Signal()
 
-    def __init__(self):
+    def __init__(self, main_vm: "MainViewModel"):
         super().__init__()
+        self._main_vm = main_vm
 
-    def save_settings(self, state, geometry):
+    def save_settings(self, geometry: str):
         try:
-            save_config(state, geometry)
+            self._main_vm.save_settings(geometry)
             self.save_settings_clicked.emit()
         except Exception as e:
             self.errorOccurred.emit(f"Error saving settings: {e}")
@@ -33,6 +39,7 @@ class MaintenanceViewModel(BaseViewModel):
     def reset_defaults(self):
         try:
             reset_config()
+            self._main_vm.load_config()
             self.reset_defaults_clicked.emit()
         except Exception as e:
             self.errorOccurred.emit(f"Error resetting defaults: {e}")

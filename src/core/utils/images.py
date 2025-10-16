@@ -204,24 +204,6 @@ def get_all_images(folder: str, recursive: bool) -> list[str]:
     return images
 
 
-def get_output_folder(state) -> str:
-    preset = state["output_folder_option"].get()
-    input_path = state["input_path"].get()
-    input_type = state["input_type"].get()
-
-    if preset == "Same as input":
-        if input_type == "File":
-            return os.path.dirname(input_path)
-        return input_path
-    if preset == "Desktop":
-        return os.path.join(os.path.expanduser("~"), "Desktop")
-    if preset == "Pictures":
-        return os.path.join(os.path.expanduser("~"), "Pictures")
-    if preset == "Custom":
-        return state["custom_output_path"].get()
-    return os.getcwd()
-
-
 def slugify(text: str) -> str:
     import re
 

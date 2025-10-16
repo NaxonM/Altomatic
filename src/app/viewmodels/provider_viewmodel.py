@@ -1,5 +1,5 @@
 
-from PySide6.QtCore import Signal, Property, str
+from PySide6.QtCore import Signal, Property
 from .base_viewmodel import BaseViewModel
 from src.core.models import AVAILABLE_PROVIDERS, get_provider_label, get_default_model, get_models_for_provider
 import pyperclip

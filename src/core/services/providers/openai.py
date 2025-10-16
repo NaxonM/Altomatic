@@ -1,6 +1,6 @@
 """OpenAI provider implementation."""
 
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
 import json
 try:
     from openai import OpenAI, RateLimitError, APIStatusError, APIConnectionError, AuthenticationError as OpenAIAuthError, BadRequestError
@@ -9,7 +9,10 @@ except ModuleNotFoundError:
 
 from .base import BaseProvider
 from .exceptions import APIError, AuthenticationError, NetworkError
-from ...ui import append_monitor_colored, update_token_label
+
+if TYPE_CHECKING:
+    from src.app.viewmodels.footer_viewmodel import FooterViewModel
+    from src.app.viewmodels.log_viewmodel import LogViewModel
 
 class OpenAIProvider(BaseProvider):
     """OpenAI provider."""
@@ -18,9 +21,12 @@ class OpenAIProvider(BaseProvider):
         if OpenAI is None:
             raise APIError("OpenAI Python package is not available. Install 'openai>=1.0' to enable this provider.")
 
-        api_key = state["openai_api_key"].get()
-        model_id = state["llm_model"].get()
-        vision_detail = state["vision_detail"].get().lower()
+        log_vm: LogViewModel = state["log_vm"]
+        footer_vm: FooterViewModel = state["footer_vm"]
+
+        api_key = state.get("openai_api_key") or ""
+        model_id = state.get("llm_model") or ""
+        vision_detail = str(state.get("vision_detail", "auto")).lower()
 
         payload = {
             "model": model_id,
@@ -47,14 +53,12 @@ class OpenAIProvider(BaseProvider):
             if not response_text:
                 raise APIError("Model returned no textual output.")
 
-            append_monitor_colored(state, f"[API RAW OUTPUT]\n{response_text}", "info")
+            log_vm.add_log(f"[API RAW OUTPUT]\n{response_text}", "info")
 
             total_tokens = response.usage.total_tokens
             if total_tokens is not None:
-                append_monitor_colored(state, f"[TOKEN USAGE] +{total_tokens} tokens", "token")
-                previous = state["total_tokens"].get()
-                state["total_tokens"].set(previous + total_tokens)
-                update_token_label(state)
+                log_vm.add_log(f"[TOKEN USAGE] +{total_tokens} tokens", "token")
+                footer_vm.total_tokens = footer_vm.total_tokens + int(total_tokens)
 
             return json.loads(response_text)
 

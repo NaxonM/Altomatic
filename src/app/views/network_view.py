@@ -43,8 +43,12 @@ class NetworkView(BaseView):
     def _connect_signals(self):
         """Connects signals and slots."""
         # View to ViewModel
-        self.proxy_checkbox.toggled.connect(self.view_model.proxy_enabled)
-        self.proxy_override_edit.textChanged.connect(self.view_model.proxy_override)
+        self.proxy_checkbox.toggled.connect(
+            lambda checked: setattr(self.view_model, "proxy_enabled", checked)
+        )
+        self.proxy_override_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "proxy_override", value)
+        )
         self.refresh_button.clicked.connect(self.view_model.refresh_detected_proxy)
 
         # ViewModel to View

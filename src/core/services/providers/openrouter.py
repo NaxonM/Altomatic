@@ -1,15 +1,18 @@
 """OpenRouter provider implementation."""
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
 
 import requests
 
 from .base import BaseProvider
 from .exceptions import APIError, AuthenticationError, NetworkError
-from ...ui import append_monitor_colored, update_token_label
 from ...models import get_provider_hint
 from ...utils.text import extract_json_from_string
+
+if TYPE_CHECKING:
+    from src.app.viewmodels.footer_viewmodel import FooterViewModel
+    from src.app.viewmodels.log_viewmodel import LogViewModel
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_HEADERS = {
@@ -22,9 +25,12 @@ class OpenRouterProvider(BaseProvider):
     """OpenRouter provider."""
 
     def describe_image(self, encoded_image: str, prompt: str, state: Dict[str, Any]) -> Dict[str, Any]:
-        api_key = state["openrouter_api_key"].get()
-        model_id = state["llm_model"].get()
-        vision_detail = state["vision_detail"].get().lower()
+        log_vm: LogViewModel = state["log_vm"]
+        footer_vm: FooterViewModel = state["footer_vm"]
+
+        api_key = state.get("openrouter_api_key") or ""
+        model_id = state.get("llm_model") or ""
+        vision_detail = str(state.get("vision_detail", "auto")).lower()
         proxies = state.get("proxies")
         provider_hint = get_provider_hint("openrouter", model_id)
 
@@ -70,7 +76,7 @@ class OpenRouterProvider(BaseProvider):
             if not response_text:
                 raise APIError("Model returned no textual output.")
 
-            append_monitor_colored(state, f"[API RAW OUTPUT]\n{response_text}", "info")
+            log_vm.add_log(f"[API RAW OUTPUT]\n{response_text}", "info")
 
             json_result = extract_json_from_string(response_text)
             if not json_result:
@@ -80,10 +86,8 @@ class OpenRouterProvider(BaseProvider):
             if isinstance(usage_data, dict):
                 total_tokens = usage_data.get("total_tokens") or usage_data.get("total")
                 if total_tokens is not None:
-                    append_monitor_colored(state, f"[TOKEN USAGE] +{total_tokens} tokens", "token")
-                    previous = state["total_tokens"].get()
-                    state["total_tokens"].set(previous + int(total_tokens))
-                    update_token_label(state)
+                    log_vm.add_log(f"[TOKEN USAGE] +{total_tokens} tokens", "token")
+                    footer_vm.total_tokens = footer_vm.total_tokens + int(total_tokens)
 
             return json_result
 

@@ -1,5 +1,5 @@
 
-from PySide6.QtCore import Signal, Property, str
+from PySide6.QtCore import Signal, Property
 from .base_viewmodel import BaseViewModel
 
 class HeaderViewModel(BaseViewModel):
@@ -53,6 +53,9 @@ class HeaderViewModel(BaseViewModel):
         This is a temporary solution until a more robust state management
         system is in place.
         """
-        self.summary_model = state.get("summary_model", "")
-        self.summary_prompt = state.get("summary_prompt", "")
-        self.summary_output = state.get("summary_output", "")
+        if "summary_model" in state:
+            self.summary_model = state["summary_model"]
+        if "summary_prompt" in state:
+            self.summary_prompt = state["summary_prompt"]
+        if "summary_output" in state:
+            self.summary_output = state["summary_output"]

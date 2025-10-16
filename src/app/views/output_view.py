@@ -46,10 +46,16 @@ class OutputView(BaseView):
     def _connect_signals(self):
         """Connects the view model's signals to the view's slots and vice versa."""
         # View to ViewModel
-        self.output_folder_combo.currentTextChanged.connect(self.view_model.output_folder_option)
-        self.custom_output_path_edit.textChanged.connect(self.view_model.custom_output_path)
+        self.output_folder_combo.currentTextChanged.connect(
+            lambda value: setattr(self.view_model, "output_folder_option", value)
+        )
+        self.custom_output_path_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "custom_output_path", value)
+        )
         self.browse_button.clicked.connect(self._browse_for_output_folder)
-        self.results_table_checkbox.toggled.connect(self.view_model.show_results_table)
+        self.results_table_checkbox.toggled.connect(
+            lambda checked: setattr(self.view_model, "show_results_table", checked)
+        )
 
         # ViewModel to View
         self.view_model.output_folder_option_changed.connect(self.output_folder_combo.setCurrentText)

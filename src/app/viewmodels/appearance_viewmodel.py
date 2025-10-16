@@ -1,6 +1,7 @@
 
-from PySide6.QtCore import Signal, Property, str
+from PySide6.QtCore import Signal, Property
 from .base_viewmodel import BaseViewModel
+from ..theming import THEMES, DEFAULT_THEME
 
 class AppearanceViewModel(BaseViewModel):
     """
@@ -10,12 +11,8 @@ class AppearanceViewModel(BaseViewModel):
 
     def __init__(self):
         super().__init__()
-        self._ui_theme = "Arctic Light"
-        self.themes = [
-            "Arctic Light", "Midnight", "Forest", "Sunset", "Lavender",
-            "Charcoal", "Ocean Blue", "Deep Space", "Warm Sand",
-            "Cherry Blossom", "Emerald Night", "Monochrome", "Nord"
-        ]
+        self._ui_theme = DEFAULT_THEME
+        self.themes = list(THEMES.keys())
 
     @Property(str, notify=ui_theme_changed)
     def ui_theme(self):
@@ -23,6 +20,8 @@ class AppearanceViewModel(BaseViewModel):
 
     @ui_theme.setter
     def ui_theme(self, value):
+        if value not in THEMES:
+            value = DEFAULT_THEME
         if self._ui_theme != value:
             self._ui_theme = value
             self.ui_theme_changed.emit(value)

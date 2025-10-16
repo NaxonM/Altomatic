@@ -82,11 +82,17 @@ class ProviderView(BaseView):
         """Connects signals and slots."""
         # View to ViewModel
         self.provider_combo.currentTextChanged.connect(
-            lambda text: self.view_model.llm_provider(self.view_model.provider_labels[text])
+            lambda text: setattr(self.view_model, "llm_provider", self.view_model.provider_labels[text])
         )
-        self.openai_key_edit.textChanged.connect(self.view_model.openai_api_key)
-        self.openrouter_key_edit.textChanged.connect(self.view_model.openrouter_api_key)
-        self.model_combo.currentTextChanged.connect(self.view_model.model)
+        self.openai_key_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "openai_api_key", value)
+        )
+        self.openrouter_key_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "openrouter_api_key", value)
+        )
+        self.model_combo.currentTextChanged.connect(
+            lambda value: setattr(self.view_model, "model", self.model_combo.currentData())
+        )
 
         self.show_openai_key_check.toggled.connect(
             lambda checked: self.openai_key_edit.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)

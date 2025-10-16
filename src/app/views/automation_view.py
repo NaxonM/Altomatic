@@ -18,6 +18,7 @@ class AutomationView(BaseView):
     def _setup_ui(self):
         """Sets up the UI widgets and layout."""
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
 
         grid = QGridLayout()
 
@@ -29,7 +30,7 @@ class AutomationView(BaseView):
         tesseract_layout = QHBoxLayout()
         self.tesseract_path_edit = QLineEdit()
         tesseract_layout.addWidget(self.tesseract_path_edit)
-        self.tesseract_browse_button = QPushButton("Browse")
+        self.tesseract_browse_button = QPushButton("Browse…")
         tesseract_layout.addWidget(self.tesseract_browse_button)
         grid.addLayout(tesseract_layout, 1, 1)
 
@@ -43,10 +44,16 @@ class AutomationView(BaseView):
     def _connect_signals(self):
         """Connects signals and slots."""
         # View to ViewModel
-        self.ocr_checkbox.toggled.connect(self.view_model.ocr_enabled)
-        self.tesseract_path_edit.textChanged.connect(self.view_model.tesseract_path)
+        self.ocr_checkbox.toggled.connect(
+            lambda checked: setattr(self.view_model, "ocr_enabled", checked)
+        )
+        self.tesseract_path_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "tesseract_path", value)
+        )
         self.tesseract_browse_button.clicked.connect(self._browse_for_tesseract)
-        self.ocr_language_edit.textChanged.connect(self.view_model.ocr_language)
+        self.ocr_language_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "ocr_language", value)
+        )
 
         # ViewModel to View
         self.view_model.ocr_enabled_changed.connect(self.ocr_checkbox.setChecked)

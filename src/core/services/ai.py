@@ -1,7 +1,7 @@
 """LLM integration layer."""
 
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
 
 from ..models import DEFAULT_PROVIDER
 from ..prompts import get_prompt_template
@@ -14,7 +14,10 @@ from ..utils import (
     image_to_base64,
     preprocess_image_for_llm,
 )
-from ..ui import append_monitor_colored
+
+if TYPE_CHECKING:
+    from src.app.viewmodels.footer_viewmodel import FooterViewModel
+    from src.app.viewmodels.log_viewmodel import LogViewModel
 
 def get_provider(provider_name: str):
     if provider_name == "openai":
@@ -24,41 +27,44 @@ def get_provider(provider_name: str):
     else:
         raise ValueError(f"Unknown provider: {provider_name}")
 
-def describe_image(state, image_path: str) -> dict | None:
-    proxy_enabled = state.get("proxy_enabled").get() if "proxy_enabled" in state else True
-    proxy_override = state.get("proxy_override").get().strip() if "proxy_override" in state else ""
-    configure_global_proxy(enabled=proxy_enabled, override=proxy_override or None, force=False)
-    proxies = get_requests_proxies(enabled=proxy_enabled, override=proxy_override or None)
-    state["proxies"] = proxies
+def describe_image(state: Dict[str, Any], image_path: str) -> dict | None:
+    log_vm: LogViewModel = state["log_vm"]
+    footer_vm: FooterViewModel = state["footer_vm"]
 
-    provider_name = state.get("llm_provider").get() or DEFAULT_PROVIDER
+    proxy_enabled = bool(state.get("proxy_enabled", True))
+    proxy_override = str(state.get("proxy_override", "")).strip()
+    configure_global_proxy(enabled=proxy_enabled, override=proxy_override or None, force=False)
+    state["proxies"] = get_requests_proxies(enabled=proxy_enabled, override=proxy_override or None)
+
+    provider_name = (state.get("llm_provider") or DEFAULT_PROVIDER) or DEFAULT_PROVIDER
 
     provider = get_provider(provider_name)
 
-    name_lang = state["filename_language"].get().lower()
-    alt_lang = state["alttext_language"].get().lower()
-    detail_level = state["name_detail_level"].get().lower()
-    ocr_enabled = state["ocr_enabled"].get()
-    tesseract_path = state["tesseract_path"].get()
-    ocr_lang = state["ocr_language"].get()
-    prompt_key = state["prompt_key"].get() if "prompt_key" in state else "default"
+    name_lang = str(state.get("filename_language", "English")).lower()
+    alt_lang = str(state.get("alttext_language", "English")).lower()
+    detail_level = str(state.get("name_detail_level", "detailed")).lower()
+    vision_detail = str(state.get("vision_detail", "auto")).lower()
+    ocr_enabled = bool(state.get("ocr_enabled", False))
+    tesseract_path = state.get("tesseract_path") or ""
+    ocr_lang = state.get("ocr_language") or "eng"
+    prompt_key = state.get("prompt_key") or "default"
     prompt_template = get_prompt_template(prompt_key).strip()
-    user_context = state["context_text"].get().strip() if "context_text" in state else ""
+    user_context = str(state.get("context_text", "")).strip()
 
     ocr_text = ""
     if ocr_enabled:
         ocr_result = extract_text_from_image(image_path, tesseract_path, ocr_lang)
         if ocr_result.startswith("⚠️ OCR failed:"):
-            append_monitor_colored(state, ocr_result, "error")
+            log_vm.add_log(ocr_result, "error")
         else:
-            append_monitor_colored(state, f"[OCR RESULT] {ocr_result}", "warn")
+            log_vm.add_log(f"[OCR RESULT] {ocr_result}", "warn")
             ocr_text = ocr_result
 
     try:
         processed_image = preprocess_image_for_llm(image_path)
         encoded_image = processed_image.data_url
-    except Exception as e:
-        append_monitor_colored(state, f"[IMAGE PREPROCESS] Failed to compress image: {e}", "warn")
+    except Exception as exc:
+        log_vm.add_log(f"[IMAGE PREPROCESS] Failed to compress image: {exc}", "warn")
         encoded_image = image_to_base64(image_path)
 
     prompt_parts: list[str] = [prompt_template.strip()]
@@ -75,5 +81,9 @@ def describe_image(state, image_path: str) -> dict | None:
 
     prompt_parts.append("\nRespond ONLY with a valid JSON object containing 'name' and 'alt'.")
     prompt = "\n".join(prompt_parts)
+
+    state["log_vm"] = log_vm
+    state["footer_vm"] = footer_vm
+    state["vision_detail"] = vision_detail
 
     return provider.describe_image(encoded_image, prompt, state)

@@ -1,5 +1,5 @@
 
-from PySide6.QtCore import Signal, Property, str, QObject
+from PySide6.QtCore import Signal, Property, QObject
 from .base_viewmodel import BaseViewModel
 from src.core.prompts import load_prompts, save_prompts
 from src.core.utils import slugify

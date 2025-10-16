@@ -1,5 +1,5 @@
 
-from PySide6.QtCore import Signal, Property, str
+from PySide6.QtCore import Signal, Property
 from .base_viewmodel import BaseViewModel
 from src.core.prompts import load_prompts
 

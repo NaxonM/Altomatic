@@ -1,68 +1,229 @@
 
+from __future__ import annotations
+
+import os
+from typing import List
+
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QCheckBox, QComboBox, QFileDialog
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QStackedLayout,
+    QVBoxLayout,
+    QWidget,
+    QCheckBox,
 )
+
 from .base_view import BaseView
 from ..viewmodels.input_viewmodel import InputViewModel
 
+
+class SourcesPanel(QFrame):
+    pathsDropped = Signal(list)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("DropArea")
+        self.setProperty("drag", "false")
+        self.setAcceptDrops(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(6)
+        title = QLabel("Selected sources")
+        title.setProperty("state", "subtitle")
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        self.add_button = QPushButton("Add sources…")
+        self.add_button.setProperty("text-role", "primary")
+        header_layout.addWidget(self.add_button)
+
+        self.remove_button = QPushButton("Remove")
+        self.remove_button.setProperty("text-role", "secondary")
+        header_layout.addWidget(self.remove_button)
+
+        self.clear_button = QPushButton("Clear All")
+        self.clear_button.setProperty("text-role", "secondary")
+        header_layout.addWidget(self.clear_button)
+
+        layout.addLayout(header_layout)
+
+        self._stack_container = QWidget()
+        self._stack_layout = QStackedLayout(self._stack_container)
+        self._stack_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.placeholder_label = QLabel("Drop files or folders here")
+        self.placeholder_label.setAlignment(Qt.AlignCenter)
+        self.placeholder_label.setWordWrap(True)
+        self.placeholder_label.setProperty("state", "muted")
+        self._stack_layout.addWidget(self.placeholder_label)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
+        self.list_widget.setMinimumHeight(120)
+        self.list_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._stack_layout.addWidget(self.list_widget)
+
+        layout.addWidget(self._stack_container, 1)
+
+        summary_layout = QHBoxLayout()
+        summary_layout.setSpacing(6)
+        self.summary_label = QLabel()
+        self.summary_label.setProperty("state", "muted")
+        summary_layout.addWidget(self.summary_label)
+        summary_layout.addStretch()
+        self.subdirectories_checkbox = QCheckBox("Include subdirectories when folders are added")
+        summary_layout.addWidget(self.subdirectories_checkbox)
+        layout.addLayout(summary_layout)
+
+        footer_layout = QHBoxLayout()
+        footer_layout.setSpacing(6)
+        footer_layout.addStretch()
+        self.image_count_label = QLabel()
+        self.image_count_label.setProperty("state", "caption")
+        footer_layout.addWidget(self.image_count_label)
+        layout.addLayout(footer_layout)
+
+        self.set_empty_state(True)
+
+    # --- Drag and drop handling ---
+    def dragEnterEvent(self, event):  # type: ignore[override]
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self.setProperty("drag", "true")
+            self.style().unpolish(self)
+            self.style().polish(self)
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):  # type: ignore[override]
+        self.setProperty("drag", "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):  # type: ignore[override]
+        event.setDropAction(Qt.CopyAction)
+        event.accept()
+        paths: List[str] = []
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                paths.append(url.toLocalFile())
+        if paths:
+            self.pathsDropped.emit(paths)
+        self.setProperty("drag", "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def set_empty_state(self, empty: bool) -> None:
+        self._stack_layout.setCurrentIndex(0 if empty else 1)
+        self.remove_button.setEnabled(not empty)
+        self.clear_button.setEnabled(not empty)
+
+
 class InputView(BaseView):
-    """
-    The input view, containing widgets for selecting the input type, path, and options.
-    """
+    """Collects user sources and related options."""
+
     def __init__(self, view_model: InputViewModel):
         super().__init__(view_model)
+        self.setObjectName("SurfaceCard")
         self._setup_ui()
         self._connect_signals()
+        self._populate_sources(self.view_model.sources())
+        self.sources_panel.summary_label.setText(self.view_model.sources_summary)
+        self.sources_panel.image_count_label.setText(self.view_model.image_count_text)
 
-    def _setup_ui(self):
-        """Sets up the UI widgets and layout."""
-        main_layout = QVBoxLayout(self)
+    def _setup_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
-        # Input Type
-        type_layout = QHBoxLayout()
-        type_layout.addWidget(QLabel("Input type:"))
-        self.input_type_combo = QComboBox()
-        self.input_type_combo.addItems(["Folder", "File"])
-        type_layout.addWidget(self.input_type_combo)
+        headline = QLabel("Sources")
+        headline.setProperty("state", "title")
+        layout.addWidget(headline)
 
-        # Input Path
-        path_layout = QHBoxLayout()
-        path_layout.addWidget(QLabel("Input path:"))
-        self.input_path_edit = QLineEdit()
-        path_layout.addWidget(self.input_path_edit)
-        self.browse_button = QPushButton("Browse")
-        path_layout.addWidget(self.browse_button)
+        helper = QLabel("Add images or folders, or drop them anywhere in this area. Supported formats are detected automatically.")
+        helper.setProperty("state", "subtitle")
+        helper.setWordWrap(True)
+        layout.addWidget(helper)
 
-        # Options
-        self.subdirectories_checkbox = QCheckBox("Include subdirectories")
-        self.image_count_label = QLabel()
+        self.sources_panel = SourcesPanel(self)
+        layout.addWidget(self.sources_panel)
 
-        main_layout.addLayout(type_layout)
-        main_layout.addLayout(path_layout)
-        main_layout.addWidget(self.subdirectories_checkbox)
-        main_layout.addWidget(self.image_count_label)
-
-    def _connect_signals(self):
-        """Connects the view model's signals to the view's slots and vice versa."""
+    def _connect_signals(self) -> None:
         # View to ViewModel
-        self.input_type_combo.currentTextChanged.connect(self.view_model.input_type)
-        self.input_path_edit.textChanged.connect(self.view_model.input_path)
-        self.subdirectories_checkbox.toggled.connect(self.view_model.include_subdirectories)
-        self.browse_button.clicked.connect(self._browse_for_input)
+        self.sources_panel.pathsDropped.connect(self.view_model.add_sources)
+        self.sources_panel.add_button.clicked.connect(self._show_add_menu)
+        self.sources_panel.remove_button.clicked.connect(self._remove_selected)
+        self.sources_panel.clear_button.clicked.connect(self.view_model.clear_sources)
+        self.sources_panel.subdirectories_checkbox.toggled.connect(
+            lambda checked: setattr(self.view_model, "include_subdirectories", checked)
+        )
 
         # ViewModel to View
-        self.view_model.input_type_changed.connect(self.input_type_combo.setCurrentText)
-        self.view_model.input_path_changed.connect(self.input_path_edit.setText)
-        self.view_model.include_subdirectories_changed.connect(self.subdirectories_checkbox.setChecked)
-        self.view_model.image_count_text_changed.connect(self.image_count_label.setText)
+        self.view_model.sources_changed.connect(self._populate_sources)
+        self.view_model.sources_summary_changed.connect(self.sources_panel.summary_label.setText)
+        self.view_model.include_subdirectories_changed.connect(self.sources_panel.subdirectories_checkbox.setChecked)
+        self.view_model.image_count_text_changed.connect(self.sources_panel.image_count_label.setText)
 
-    def _browse_for_input(self):
-        """Opens a file or folder dialog based on the selected input type."""
-        if self.view_model.input_type == "Folder":
-            path = QFileDialog.getExistingDirectory(self, "Select Folder")
-        else: # File
-            path, _ = QFileDialog.getOpenFileName(self, "Select File", "", "Image Files (*.png *.jpg *.jpeg *.webp *.heic *.heif)")
+        self._add_menu = QMenu(self)
+        self._add_menu.addAction("Add files…", self._add_files)
+        self._add_menu.addAction("Add folder…", self._add_folder)
 
+    # --- Slots ---
+    def _show_add_menu(self) -> None:
+        anchor = self.sources_panel.add_button
+        menu_pos = anchor.mapToGlobal(anchor.rect().bottomLeft())
+        self._add_menu.exec(menu_pos)
+
+    def _add_files(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Images",
+            "",
+            "Images (*.png *.jpg *.jpeg *.webp *.heic *.heif);;All Files (*)",
+        )
+        if paths:
+            self.view_model.add_sources(paths)
+
+    def _add_folder(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if path:
-            self.view_model.input_path = path
+            self.view_model.add_sources([path])
+
+    def _remove_selected(self) -> None:
+        selections = self.sources_panel.list_widget.selectedItems()
+        for item in selections:
+            path = item.data(Qt.UserRole)
+            if path:
+                self.view_model.remove_source(path)
+
+    def _populate_sources(self, sources: List[str]) -> None:
+        self.sources_panel.list_widget.clear()
+        for path in sources:
+            item = QListWidgetItem(os.path.basename(path) or path)
+            item.setToolTip(path)
+            item.setData(Qt.UserRole, path)
+            self.sources_panel.list_widget.addItem(item)
+        self.sources_panel.set_empty_state(len(sources) == 0)
+
+    # --- Public helpers for external triggers ---
+    def trigger_add_files(self) -> None:
+        self._add_files()
+
+    def trigger_add_sources(self) -> None:
+        self._show_add_menu()
+
+    def trigger_clear_sources(self) -> None:
+        self.view_model.clear_sources()

@@ -19,6 +19,7 @@ class AdvancedView(BaseView):
         """Sets up the UI widgets and layout."""
         layout = QVBoxLayout(self)
         notebook = QTabWidget(self)
+        notebook.setObjectName("AdvancedTabs")
 
         # Create the sub-tab views
         appearance_view = AppearanceView(self.view_model.appearance_vm)

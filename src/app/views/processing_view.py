@@ -18,6 +18,7 @@ class ProcessingView(BaseView):
     def _setup_ui(self):
         """Sets up the UI widgets and layout."""
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
 
         grid = QGridLayout()
 
@@ -51,7 +52,7 @@ class ProcessingView(BaseView):
         tesseract_layout = QHBoxLayout()
         self.tesseract_path_edit = QLineEdit()
         tesseract_layout.addWidget(self.tesseract_path_edit)
-        self.tesseract_browse_button = QPushButton("Browse")
+        self.tesseract_browse_button = QPushButton("Browse…")
         tesseract_layout.addWidget(self.tesseract_browse_button)
         grid.addLayout(tesseract_layout, 3, 1, 1, 3)
 
@@ -65,14 +66,28 @@ class ProcessingView(BaseView):
     def _connect_signals(self):
         """Connects the view model's signals to the view's slots and vice versa."""
         # View to ViewModel
-        self.filename_language_combo.currentTextChanged.connect(self.view_model.filename_language)
-        self.alttext_language_combo.currentTextChanged.connect(self.view_model.alttext_language)
-        self.name_detail_combo.currentTextChanged.connect(self.view_model.name_detail_level)
-        self.vision_detail_combo.currentTextChanged.connect(self.view_model.vision_detail)
-        self.ocr_checkbox.toggled.connect(self.view_model.ocr_enabled)
-        self.tesseract_path_edit.textChanged.connect(self.view_model.tesseract_path)
+        self.filename_language_combo.currentTextChanged.connect(
+            lambda value: setattr(self.view_model, "filename_language", value)
+        )
+        self.alttext_language_combo.currentTextChanged.connect(
+            lambda value: setattr(self.view_model, "alttext_language", value)
+        )
+        self.name_detail_combo.currentTextChanged.connect(
+            lambda value: setattr(self.view_model, "name_detail_level", value)
+        )
+        self.vision_detail_combo.currentTextChanged.connect(
+            lambda value: setattr(self.view_model, "vision_detail", value)
+        )
+        self.ocr_checkbox.toggled.connect(
+            lambda checked: setattr(self.view_model, "ocr_enabled", checked)
+        )
+        self.tesseract_path_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "tesseract_path", value)
+        )
         self.tesseract_browse_button.clicked.connect(self._browse_for_tesseract)
-        self.ocr_language_edit.textChanged.connect(self.view_model.ocr_language)
+        self.ocr_language_edit.textChanged.connect(
+            lambda value: setattr(self.view_model, "ocr_language", value)
+        )
 
         # ViewModel to View
         self.view_model.filename_language_changed.connect(self.filename_language_combo.setCurrentText)

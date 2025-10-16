@@ -25,9 +25,9 @@ class Typography:
     Defines typography settings for the application.
     """
     FONT_FAMILY = "Segoe UI"
-    FONT_SIZE_BASE = "14px"
-    FONT_SIZE_LARGE = "16px"
-    FONT_SIZE_SMALL = "12px"
+    FONT_SIZE_BASE = "13px"
+    FONT_SIZE_LARGE = "15px"
+    FONT_SIZE_SMALL = "11px"
     FONT_WEIGHT_BOLD = "600"
     FONT_WEIGHT_NORMAL = "400"
 
@@ -35,7 +35,7 @@ class Spacing:
     """
     Defines spacing units for consistent layout.
     """
-    BASE_UNIT = 4
+    BASE_UNIT = 3
     SMALL = f"{BASE_UNIT * 2}px"
     MEDIUM = f"{BASE_UNIT * 4}px"
     LARGE = f"{BASE_UNIT * 6}px"
