@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QPointF, QTimer, Qt, Signal
+from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, QPointF, QTimer, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..theming import apply_theme
+from ..theming import apply_theme, THEMES, DEFAULT_THEME
 from ..viewmodels.main_viewmodel import MainViewModel
 from .command_palette import Command, CommandPalette
 from .footer_view import FooterView
@@ -88,7 +88,6 @@ class StepperColumn(QWidget):
             button.setObjectName("StepperButton")
             button.setFlat(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setMinimumHeight(52)
             button.setProperty("state", "pending")
             button.clicked.connect(lambda _, i=index: self.step_selected.emit(i))
             
@@ -264,17 +263,10 @@ class MainWindow(QMainWindow):
     - Notifications
     """
 
-    # Constants
-    DEFAULT_SIZE = (880, 540)
-    MIN_SIZE = (760, 500)
-    STEPPER_MIN_WIDTH = 170
-    STEPPER_MAX_WIDTH = 240
-    NOTIFICATION_MARGIN = 20
-    NOTIFICATION_MIN_WIDTH = 320
-
     def __init__(self, view_model: MainViewModel):
         super().__init__()
         self.vm = view_model
+        self.vm.main_window = self
         
         # State
         self._review_ready = False
@@ -298,8 +290,15 @@ class MainWindow(QMainWindow):
     def _setup_window(self) -> None:
         """Configure main window properties."""
         self.setWindowTitle("Altomatic")
-        self.resize(*self.DEFAULT_SIZE)
-        self.setMinimumSize(*self.MIN_SIZE)
+        
+        # Restore geometry from settings
+        geometry_str = self.vm.get_window_geometry()
+        if geometry_str:
+            self.restoreGeometry(QByteArray.fromHex(geometry_str.encode()))
+        else:
+            self.resize(880, 540)
+
+        self.setMinimumSize(760, 500)
 
     def _setup_ui(self) -> None:
         """Create and layout all UI components."""
@@ -312,11 +311,11 @@ class MainWindow(QMainWindow):
 
         # App bar
         self.app_bar = self._create_app_bar()
-        main_layout.addWidget(self.app_bar)
+        main_layout.addWidget(self.app_bar, 0)
 
         # Body with stepper and canvas
         body_layout = QHBoxLayout()
-        body_layout.setContentsMargins(0, 2, 0, 0)
+        body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(14)
         main_layout.addLayout(body_layout, 1)
 
@@ -365,7 +364,6 @@ class MainWindow(QMainWindow):
             button = QPushButton(text)
             button.setProperty("text-role", "ghost")
             button.clicked.connect(callback)
-            button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             layout.addWidget(button)
 
     def _create_stepper(self, layout: QHBoxLayout) -> None:
@@ -378,10 +376,7 @@ class MainWindow(QMainWindow):
         ]
         
         self.stepper = StepperColumn(steps, interactive_count=3, parent=self)
-        self.stepper.setMinimumWidth(self.STEPPER_MIN_WIDTH)
-        self.stepper.setMaximumWidth(self.STEPPER_MAX_WIDTH)
-        self.stepper.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        self.stepper.step_selected.connect(self._navigate_to_step)
+        self.stepper.setFixedWidth(220)
         layout.addWidget(self.stepper)
 
         # Add summary card
@@ -473,6 +468,7 @@ class MainWindow(QMainWindow):
         self.vm.processingStarted.connect(self._on_processing_started)
         self.vm.processingFinished.connect(self._on_processing_finished)
         self.vm.resultsReady.connect(self._on_results_ready)
+        self.vm.notification.connect(self.footer_view.show_notification)
 
     def _connect_input_signals(self) -> None:
         """Connect input view signals."""
@@ -538,7 +534,7 @@ class MainWindow(QMainWindow):
             ),
             Command(
                 "Toggle theme",
-                "Switch between Aurora light and dark",
+                "Switch between available themes",
                 self._toggle_theme,
             ),
             Command(
@@ -604,17 +600,24 @@ class MainWindow(QMainWindow):
         self.log_dock.raise_()
 
     def _toggle_theme(self) -> None:
-        """Toggle between light and dark theme."""
+        """Cycle through available themes."""
         appearance_vm = self.vm.advanced_vm.appearance_vm
         current_theme = appearance_vm.ui_theme
-        new_theme = "Aurora Dark" if current_theme != "Aurora Dark" else "Aurora Light"
+        theme_names = list(THEMES.keys())
+        try:
+            current_index = theme_names.index(current_theme)
+            next_index = (current_index + 1) % len(theme_names)
+            new_theme = theme_names[next_index]
+        except ValueError:
+            new_theme = DEFAULT_THEME
         appearance_vm.ui_theme = new_theme
         self._on_settings_changed()
 
     def _apply_theme(self, theme_name: str) -> None:
         """Apply the specified theme to the application."""
         app = QApplication.instance()
-        apply_theme(app, theme_name)
+        if app:
+            apply_theme(app, theme_name)
 
     # ------------------------------------------------------------------------
     # Navigation
@@ -664,14 +667,16 @@ class MainWindow(QMainWindow):
         label = self.notification_label
         label.adjustSize()
         
+        margin = 16
+
         width = max(
-            self.NOTIFICATION_MIN_WIDTH,
-            self.width() - self.NOTIFICATION_MARGIN * 2
+            320,
+            self.width() - margin * 2
         )
         label.resize(width, label.height())
         
-        x = self.NOTIFICATION_MARGIN
-        y = self.height() - label.height() - self.NOTIFICATION_MARGIN
+        x = margin
+        y = self.height() - label.height() - margin
         label.move(x, y)
 
     # ------------------------------------------------------------------------
@@ -817,11 +822,11 @@ class MainWindow(QMainWindow):
         
         self._persist_settings()
 
-    def _on_results_ready(self, results: List[Dict[str, Any]]) -> None:
+    def _on_results_ready(self, results: List[Dict[str, Any]], session_path: str) -> None:
         """Handle new results being available."""
         self._latest_results = list(results)
         show_table = self.vm.workflow_vm.output_vm.show_results_table
-        self.review_view.set_results(self._latest_results, show_table)
+        self.review_view.set_results(self._latest_results, show_table, session_path)
         self._review_ready = bool(self._latest_results)
         self._refresh_stepper()
 
@@ -841,7 +846,7 @@ class MainWindow(QMainWindow):
 
     def _persist_settings(self) -> None:
         """Save current settings and window geometry."""
-        geometry = f"{self.width()}x{self.height()}"
+        geometry = self.saveGeometry().toHex().data().decode()
         self.vm.save_settings(geometry)
 
     # ------------------------------------------------------------------------

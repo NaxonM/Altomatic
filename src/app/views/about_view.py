@@ -19,7 +19,7 @@ class AboutView(BaseView):
         layout = QVBoxLayout(self)
 
         title = QLabel(self.view_model.app_name)
-        title.setObjectName("TitleLabel")
+        title.setProperty("state", "title")
 
         description = QLabel(self.view_model.description)
         description.setWordWrap(True)

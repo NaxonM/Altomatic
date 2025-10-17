@@ -110,10 +110,9 @@ def load_config() -> dict[str, Any]:
         return DEFAULT_CONFIG.copy()
 
 
-def save_config(state: dict[str, Any], geometry: str) -> None:
+def save_config(state: dict[str, Any]) -> None:
     data: dict[str, Any] = DEFAULT_CONFIG.copy()
     data.update(state)
-    data["window_geometry"] = geometry
 
     openai_key = data.get("openai_api_key", "") or ""
     openrouter_key = data.get("openrouter_api_key", "") or ""

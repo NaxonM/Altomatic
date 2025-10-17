@@ -1,26 +1,90 @@
 from __future__ import annotations
 
+import os
 import csv
 import json
 from pathlib import Path
 from typing import List, Dict, Any
 
-from PySide6.QtCore import Qt, QSortFilterProxyModel
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
-    QTableView,
     QVBoxLayout,
     QWidget,
+    QTextEdit,
+    QLineEdit,
 )
 
 from .base_view import BaseView
 from ..viewmodels.results_viewmodel import ResultsViewModel
+
+
+class ResultItemWidget(QWidget):
+    """Custom widget for displaying a single result item."""
+
+    def __init__(self, item_data: Dict[str, Any]):
+        super().__init__()
+        self.item_data = item_data
+        self._setup_ui()
+
+    def _setup_ui(self):
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+        # Image Preview
+        self.image_preview = QLabel()
+        self.image_preview.setFixedSize(100, 100)
+        self.image_preview.setAlignment(Qt.AlignCenter)
+        pixmap = QPixmap(self.item_data["original_path"])
+        self.image_preview.setPixmap(pixmap.scaled(self.image_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        main_layout.addWidget(self.image_preview)
+
+        # Details Layout
+        details_layout = QVBoxLayout()
+        details_layout.setSpacing(8)
+
+        # New Filename
+        name_layout = QHBoxLayout()
+        name_label = QLabel("New Filename:")
+        name_label.setProperty("state", "muted")
+        self.name_text = QLineEdit(self.item_data["new_filename"])
+        self.name_text.setReadOnly(True)
+        copy_name_button = QPushButton("Copy")
+        copy_name_button.clicked.connect(self._copy_name)
+        name_layout.addWidget(name_label)
+        name_layout.addWidget(self.name_text, 1)
+        name_layout.addWidget(copy_name_button)
+        details_layout.addLayout(name_layout)
+
+        # Alt Text
+        alt_layout = QHBoxLayout()
+        alt_label = QLabel("Alt Text:")
+        alt_label.setProperty("state", "muted")
+        self.alt_text = QTextEdit(self.item_data["alt_text"])
+        self.alt_text.setReadOnly(True)
+        self.alt_text.setFixedHeight(60)
+        copy_alt_button = QPushButton("Copy")
+        copy_alt_button.clicked.connect(self._copy_alt_text)
+        alt_layout.addWidget(alt_label)
+        alt_layout.addWidget(self.alt_text, 1)
+        alt_layout.addWidget(copy_alt_button)
+        details_layout.addLayout(alt_layout)
+
+        main_layout.addLayout(details_layout)
+
+    def _copy_name(self):
+        QGuiApplication.clipboard().setText(self.item_data["new_filename"])
+
+    def _copy_alt_text(self):
+        QGuiApplication.clipboard().setText(self.item_data["alt_text"])
 
 
 class ReviewView(BaseView):
@@ -38,110 +102,84 @@ class ReviewView(BaseView):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
 
+        # Header
+        header_frame = QFrame()
+        header_layout = QVBoxLayout(header_frame)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)
         self.title_label = QLabel("Review")
         self.title_label.setProperty("state", "title")
-        layout.addWidget(self.title_label)
-
+        header_layout.addWidget(self.title_label)
         self.subtitle_label = QLabel("Inspect processed results, copy alt text, or export to share with your team.")
         self.subtitle_label.setProperty("state", "subtitle")
         self.subtitle_label.setWordWrap(True)
-        layout.addWidget(self.subtitle_label)
+        header_layout.addWidget(self.subtitle_label)
+        layout.addWidget(header_frame)
 
+        # Placeholder for when no results are available
         self.placeholder_label = QLabel("Run the workflow to generate results.")
         self.placeholder_label.setProperty("state", "muted")
         self.placeholder_label.setAlignment(Qt.AlignCenter)
         self.placeholder_label.setWordWrap(True)
         layout.addWidget(self.placeholder_label, 1)
 
-        # Search + table container
-        self.search_container = QWidget()
-        self.search_layout = QHBoxLayout(self.search_container)
-        self.search_layout.setContentsMargins(0, 0, 0, 0)
-        self.search_layout.setSpacing(6)
-        search_label = QLabel("Search")
-        search_label.setProperty("state", "muted")
-        self.search_layout.addWidget(search_label)
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Filter filenames or alt text…")
-        self.search_layout.addWidget(self.search_edit, 1)
-        layout.addWidget(self.search_container)
+        # Main content area with list and actions
+        self.content_frame = QFrame()
+        self.content_frame.setObjectName("SurfaceCard")
+        content_layout = QVBoxLayout(self.content_frame)
+        content_layout.setSpacing(10)
+        layout.addWidget(self.content_frame, 1)
 
-        self.proxy_model = QSortFilterProxyModel(self)
-        self.proxy_model.setSourceModel(self.view_model.table_model)
-        self.proxy_model.setFilterCaseSensitivity(Qt.CaseInsensitive)
-        self.proxy_model.setFilterKeyColumn(-1)
-
-        self.table_view = QTableView()
-        self.table_view.setModel(self.proxy_model)
-        self.table_view.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table_view.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table_view.horizontalHeader().setStretchLastSection(True)
-        self.table_view.verticalHeader().hide()
-        layout.addWidget(self.table_view, 1)
+        # Results list
+        self.results_list = QListWidget()
+        content_layout.addWidget(self.results_list)
 
         # Actions row
-        self.actions_container = QWidget()
-        self.actions_layout = QHBoxLayout(self.actions_container)
-        self.actions_layout.setContentsMargins(0, 0, 0, 0)
-        self.actions_layout.setSpacing(8)
-        self.copy_button = QPushButton("Copy Alt Text")
+        actions_frame = QFrame()
+        actions_layout = QHBoxLayout(actions_frame)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(8)
         self.export_csv_button = QPushButton("Export CSV")
         self.export_json_button = QPushButton("Export JSON")
-        self.actions_layout.addWidget(self.copy_button)
-        self.actions_layout.addWidget(self.export_csv_button)
-        self.actions_layout.addWidget(self.export_json_button)
-        self.actions_layout.addStretch()
-        layout.addWidget(self.actions_container)
+        self.open_folder_button = QPushButton("Open Output Folder")
+        actions_layout.addWidget(self.open_folder_button)
+        actions_layout.addStretch()
+        actions_layout.addWidget(self.export_csv_button)
+        actions_layout.addWidget(self.export_json_button)
+        content_layout.addWidget(actions_frame)
 
     def _bind_signals(self) -> None:
-        self.search_edit.textChanged.connect(self.proxy_model.setFilterFixedString)
-        self.copy_button.clicked.connect(self._copy_selected_alt_text)
         self.export_csv_button.clicked.connect(lambda: self._export_results("csv"))
         self.export_json_button.clicked.connect(lambda: self._export_results("json"))
+        self.open_folder_button.clicked.connect(self._open_output_folder)
 
-    def set_results(self, results: List[Dict[str, Any]], table_enabled: bool) -> None:
+    def _open_output_folder(self) -> None:
+        if self.session_path and os.path.isdir(self.session_path):
+            os.startfile(self.session_path)
+
+    def set_results(self, results: List[Dict[str, Any]], table_enabled: bool, session_path: str) -> None:
         self._table_enabled = table_enabled
         self.view_model.update_results(results)
+        self.session_path = session_path
         self._refresh_visibility()
-        if results:
-            self.table_view.resizeColumnsToContents()
+        self._populate_results_list(results)
 
-    # --- helpers ---
+    def _populate_results_list(self, results: List[Dict[str, Any]]):
+        self.results_list.clear()
+        for result in results:
+            item = QListWidgetItem(self.results_list)
+            widget = ResultItemWidget(result)
+            item.setSizeHint(widget.sizeHint())
+            self.results_list.addItem(item)
+            self.results_list.setItemWidget(item, widget)
+
     def _refresh_visibility(self) -> None:
-        results_available = self.view_model.results
-        show_table = self._table_enabled and len(results_available) > 0
-
-        self.table_view.setVisible(show_table)
-        self.search_container.setVisible(show_table)
-        self.actions_container.setVisible(show_table)
-
-        if not self._table_enabled:
-            self.placeholder_label.setText("Interactive results table has been disabled in Output settings.")
-        elif show_table:
-            self.placeholder_label.hide()
-            return
-        elif results_available:
-            self.placeholder_label.setText("Results are available, but nothing to display.")
-        else:
-            self.placeholder_label.setText("Run the workflow to generate results.")
-        self.placeholder_label.show()
-
-    def _selected_row(self) -> int | None:
-        indexes = self.table_view.selectionModel().selectedRows() if self.table_view.isVisible() else []
-        if not indexes:
-            return None
-        proxy_index = indexes[0]
-        return self.proxy_model.mapToSource(proxy_index).row()
-
-    def _copy_selected_alt_text(self) -> None:
-        row = self._selected_row()
-        if row is None:
-            return
-        alt_text = self.view_model.results[row]["alt_text"]
-        QGuiApplication.clipboard().setText(alt_text)
+        has_results = bool(self.view_model.results)
+        self.content_frame.setVisible(has_results)
+        self.placeholder_label.setVisible(not has_results)
 
     def _export_results(self, fmt: str) -> None:
-        if not self.view_model.results or not self.table_view.isVisible():
+        if not self.view_model.results:
             return
         filters = "CSV Files (*.csv)" if fmt == "csv" else "JSON Files (*.json)"
         path, _ = QFileDialog.getSaveFileName(self, "Export Results", "", filters)

@@ -122,8 +122,19 @@ class FooterView(BaseView):
         # Add status label to the top of the left container
         left_layout.addWidget(self.status_label)
 
+        # Progress container
+        progress_container = QFrame()
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(4)
+
         # Add progress bar
-        left_layout.addWidget(self.progress_bar)
+        progress_layout.addWidget(self.progress_bar)
+
+        self.notification_label = QLabel()
+        self.notification_label.setObjectName("NotificationBanner")
+        self.notification_label.hide()
+        progress_layout.addWidget(self.notification_label)
 
         # Session ticker layout
         ticker_container = QWidget()
@@ -140,7 +151,8 @@ class FooterView(BaseView):
         self.session_ticker = SessionTicker(self)
         ticker_layout.addWidget(self.session_ticker, 1)
         
-        left_layout.addWidget(ticker_container)
+        progress_layout.addWidget(ticker_container)
+        left_layout.addWidget(progress_container)
 
         # Add left container to the main layout with a stretch factor
         layout.addWidget(left_container, 1)
@@ -152,6 +164,15 @@ class FooterView(BaseView):
         self._setup_button_animation()
         self._setup_progress_animation()
         self._refresh_session_ticker()
+
+    def show_notification(self, message: str, state: str) -> None:
+        """Shows or hides a notification in the footer."""
+        if message:
+            self.notification_label.setText(message)
+            self.notification_label.setProperty("state", state)
+            self.notification_label.show()
+        else:
+            self.notification_label.hide()
 
     def _setup_button_animation(self) -> None:
         accent = self._accent_color()

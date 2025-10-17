@@ -19,7 +19,9 @@ class ContextView(BaseView):
         """Sets up the UI widgets and layout."""
         layout = QVBoxLayout(self)
 
-        layout.addWidget(QLabel("Context notes:"))
+        label = QLabel("Context notes:")
+        label.setProperty("state", "subtitle")
+        layout.addWidget(label)
 
         self.context_text_edit = QTextEdit()
         layout.addWidget(self.context_text_edit)
@@ -36,9 +38,12 @@ class ContextView(BaseView):
     def _connect_signals(self):
         """Connects the view model's signals to the view's slots and vice versa."""
         # View to ViewModel
-        self.context_text_edit.textChanged.connect(lambda: self.view_model.context_text(self.context_text_edit.toPlainText()))
+        self.context_text_edit.textChanged.connect(self._on_text_changed)
         self.clear_button.clicked.connect(self.view_model.clear_context)
 
         # ViewModel to View
         self.view_model.context_text_changed.connect(self.context_text_edit.setPlainText)
         self.view_model.char_count_text_changed.connect(self.char_count_label.setText)
+
+    def _on_text_changed(self):
+        self.view_model.context_text = self.context_text_edit.toPlainText()

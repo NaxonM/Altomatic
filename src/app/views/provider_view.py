@@ -117,6 +117,8 @@ class ProviderView(BaseView):
         self.openrouter_frame.setVisible(provider == "openrouter")
         self.refresh_models_button.setVisible(provider == "openrouter")
         self._update_model_list()
+        self.openai_key_edit.setText(self.view_model.openai_api_key)
+        self.openrouter_key_edit.setText(self.view_model.openrouter_api_key)
 
     def _update_model_list(self):
         """Updates the model combobox with models for the current provider."""
@@ -131,3 +133,4 @@ class ProviderView(BaseView):
             if self.model_combo.itemData(i) == model_id:
                 self.model_combo.setCurrentIndex(i)
                 break
+

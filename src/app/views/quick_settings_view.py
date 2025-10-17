@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import os
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QStackedLayout,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from .base_view import BaseView
@@ -35,11 +39,21 @@ class DescribeView(BaseView):
         self.context_vm = workflow_vm.context_vm
 
         self._updating = False
+        self._api_overlay_force_hidden = False
+        self._api_focus_in_handler = None
+        self._api_focus_out_handler = None
+        self._api_focus_in_handler = None
+        self._api_focus_out_handler = None
+        self._api_focus_in_handler = None
+        self._api_focus_out_handler = None
+        self._api_focus_in_handler = None
+        self._api_focus_out_handler = None
         self._setup_ui()
         self._connect_signals()
         self._refresh_provider()
         self._refresh_prompts()
         self._refresh_context()
+        self._update_api_key_indicator(self._provider_has_key())
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -73,7 +87,57 @@ class DescribeView(BaseView):
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.Password)
         self.api_key_edit.setPlaceholderText("Enter provider key (optional)")
-        provider_form.addRow(self.api_key_label, self.api_key_edit)
+
+        api_field_widget = QWidget()
+        field_stack = QStackedLayout(api_field_widget)
+        field_stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
+        field_stack.setContentsMargins(0, 0, 0, 0)
+
+        field_container = QWidget()
+        field_layout = QVBoxLayout(field_container)
+        field_layout.setContentsMargins(0, 0, 0, 0)
+        field_layout.setSpacing(0)
+        field_layout.addWidget(self.api_key_edit)
+
+        overlay_container = QWidget()
+        overlay_container.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        overlay_container.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        overlay_container.setVisible(False)
+
+        overlay_layout = QVBoxLayout(overlay_container)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+
+        overlay_wrapper = QWidget()
+        overlay_wrapper.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        overlay_wrapper.setStyleSheet("background: transparent;")
+        overlay_wrapper.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        overlay_wrapper_layout = QVBoxLayout(overlay_wrapper)
+        overlay_wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_wrapper_layout.setSpacing(0)
+        overlay_wrapper_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.api_key_overlay = QLabel("Configured – click to edit")
+        self.api_key_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.api_key_overlay.setStyleSheet(
+            "background-color: rgba(12, 94, 196, 0.88);"
+            "color: #ffffff;"
+            "font-weight: 600;"
+            "border-radius: 10px;"
+            "padding: 6px;"
+        )
+        self.api_key_overlay.setMinimumHeight(32)
+        self.api_key_overlay.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.api_key_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+
+        overlay_wrapper_layout.addWidget(self.api_key_overlay)
+        overlay_layout.addWidget(overlay_wrapper)
+
+        field_stack.addWidget(field_container)
+        field_stack.addWidget(overlay_container)
+
+        self.api_key_overlay_container = overlay_container
+        provider_form.addRow(self.api_key_label, api_field_widget)
 
         layout.addWidget(provider_card)
 
@@ -114,6 +178,7 @@ class DescribeView(BaseView):
         self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
         self.api_key_edit.textChanged.connect(self._on_api_key_changed)
+        self.api_key_edit.editingFinished.connect(self._on_api_key_editing_finished)
 
         self.prompt_combo.currentIndexChanged.connect(self._on_prompt_changed)
         self.edit_prompts_button.clicked.connect(self.prompts_vm.edit_prompts)
@@ -123,6 +188,18 @@ class DescribeView(BaseView):
         self.provider_vm.model_changed.connect(self._refresh_provider)
         self.provider_vm.openai_api_key_changed.connect(self._refresh_api_key)
         self.provider_vm.openrouter_api_key_changed.connect(self._refresh_api_key)
+        self.provider_vm.openai_api_key_changed.connect(
+            lambda _: self._update_api_key_indicator(self._provider_has_key())
+        )
+        self.provider_vm.openrouter_api_key_changed.connect(
+            lambda _: self._update_api_key_indicator(self._provider_has_key())
+        )
+
+        self.api_key_overlay.mousePressEvent = self._handle_api_overlay_click  # type: ignore[assignment]
+        self._api_focus_in_handler = self.api_key_edit.focusInEvent
+        self._api_focus_out_handler = self.api_key_edit.focusOutEvent
+        self.api_key_edit.focusInEvent = self._api_field_focus_in  # type: ignore[assignment]
+        self.api_key_edit.focusOutEvent = self._api_field_focus_out  # type: ignore[assignment]
 
         self.prompts_vm.selected_prompt_changed.connect(self._refresh_prompts)
         self.prompts_vm.prompt_preview_text_changed.connect(self.prompt_preview.setPlainText)
@@ -162,13 +239,18 @@ class DescribeView(BaseView):
         try:
             if provider_id == "openai":
                 self.api_key_label.setText("OpenAI API Key")
-                self.api_key_edit.setText(self.provider_vm.openai_api_key)
+                value = self.provider_vm.openai_api_key
+                self._set_api_field_value(value, reveal=False)
+                self._update_api_key_indicator(bool(value))
             elif provider_id == "openrouter":
                 self.api_key_label.setText("OpenRouter API Key")
-                self.api_key_edit.setText(self.provider_vm.openrouter_api_key)
+                value = self.provider_vm.openrouter_api_key
+                self._set_api_field_value(value, reveal=False)
+                self._update_api_key_indicator(bool(value))
             else:
                 self.api_key_label.setText("API Key")
                 self.api_key_edit.clear()
+                self._update_api_key_indicator(False)
         finally:
             self._updating = False
 
@@ -219,11 +301,13 @@ class DescribeView(BaseView):
     def _on_api_key_changed(self, text: str) -> None:
         if self._updating:
             return
+        self._api_overlay_force_hidden = True
         provider_id = self.provider_vm.llm_provider
         if provider_id == "openai":
             self.provider_vm.openai_api_key = text
         elif provider_id == "openrouter":
             self.provider_vm.openrouter_api_key = text
+        self._update_api_key_indicator(bool(text))
 
     def _on_prompt_changed(self) -> None:
         if self._updating:
@@ -245,6 +329,75 @@ class DescribeView(BaseView):
             self.context_edit.setPlainText(text)
         finally:
             self._updating = False
+
+    def _update_api_key_indicator(self, has_value: bool) -> None:
+        if not has_value:
+            self._api_overlay_force_hidden = False
+        should_show = has_value and not self._api_overlay_force_hidden and not self.api_key_edit.hasFocus()
+        self.api_key_overlay.setVisible(should_show)
+
+    def _provider_has_key(self) -> bool:
+        provider_id = self.provider_vm.llm_provider
+        if provider_id == "openai":
+            return bool(self.provider_vm.openai_api_key)
+        if provider_id == "openrouter":
+            return bool(self.provider_vm.openrouter_api_key)
+        return False
+
+    def _handle_api_overlay_click(self, event) -> None:
+        self._api_overlay_force_hidden = True
+        self.api_key_overlay.hide()
+        self._set_api_field_value(self._get_current_key(), reveal=True)
+        self.api_key_edit.setFocus()
+        self.api_key_edit.selectAll()
+        event.accept()
+
+    def _on_api_key_editing_finished(self) -> None:
+        if not self.api_key_edit.text():
+            provider_id = self.provider_vm.llm_provider
+            if provider_id == "openai":
+                self.provider_vm.openai_api_key = ""
+            elif provider_id == "openrouter":
+                self.provider_vm.openrouter_api_key = ""
+        self._api_overlay_force_hidden = False
+        self._set_api_field_value(self._get_current_key(), reveal=False)
+        self._update_api_key_indicator(self._provider_has_key())
+
+    def _api_field_focus_in(self, event) -> None:
+        self._api_overlay_force_hidden = True
+        self.api_key_overlay.hide()
+        self._set_api_field_value(self._get_current_key(), reveal=True)
+        if self._api_focus_in_handler:
+            self._api_focus_in_handler(event)
+
+    def _api_field_focus_out(self, event) -> None:
+        if self._api_focus_out_handler:
+            self._api_focus_out_handler(event)
+        self._api_overlay_force_hidden = False
+        if not self.api_key_edit.text():
+            provider_id = self.provider_vm.llm_provider
+            if provider_id == "openai":
+                self.provider_vm.openai_api_key = ""
+            elif provider_id == "openrouter":
+                self.provider_vm.openrouter_api_key = ""
+        self._set_api_field_value(self._get_current_key(), reveal=False)
+        self._update_api_key_indicator(self._provider_has_key())
+
+    def _set_api_field_value(self, value: str, *, reveal: bool) -> None:
+        self.api_key_edit.blockSignals(True)
+        if reveal:
+            self.api_key_edit.setText(value)
+        else:
+            self.api_key_edit.clear()
+        self.api_key_edit.blockSignals(False)
+
+    def _get_current_key(self) -> str:
+        provider_id = self.provider_vm.llm_provider
+        if provider_id == "openai":
+            return self.provider_vm.openai_api_key
+        if provider_id == "openrouter":
+            return self.provider_vm.openrouter_api_key
+        return ""
 
 
 class OutputSettingsView(BaseView):

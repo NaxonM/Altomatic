@@ -1,4 +1,3 @@
-
 from PySide6.QtCore import QRunnable, Slot, QObject, Signal
 from src.core.core.processor import process_images
 from typing import List, Dict, Any, TYPE_CHECKING
@@ -10,7 +9,8 @@ class WorkerSignals(QObject):
     """
     Defines the signals available from a running worker thread.
     """
-    finished = Signal(list)
+    finished = Signal(list, str)
+    progress = Signal(int)
 
 class Worker(QRunnable):
     """
@@ -26,5 +26,5 @@ class Worker(QRunnable):
         """
         Runs the image processing task and emits the results.
         """
-        results = process_images(self.main_vm)
-        self.signals.finished.emit(results)
+        results, session_path = process_images(self.main_vm, self.signals.progress.emit)
+        self.signals.finished.emit(results, session_path)

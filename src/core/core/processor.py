@@ -23,9 +23,12 @@ from ..utils.images import (
 if TYPE_CHECKING:
     from src.app.viewmodels.main_viewmodel import MainViewModel
 
-def process_images(main_vm: MainViewModel) -> List[Dict[str, Any]]:
+from typing import Callable
+
+def process_images(main_vm: MainViewModel, progress_callback: Callable[[int], None]) -> tuple[List[Dict[str, Any]], str]:
     """The core image processing pipeline."""
     results: List[Dict[str, Any]] = []
+    session_path = ""
 
     try:
         provider = main_vm.prompts_model_vm.provider_vm.llm_provider
@@ -41,7 +44,7 @@ def process_images(main_vm: MainViewModel) -> List[Dict[str, Any]]:
             main_vm.log_vm.add_log(f"Please enter your {get_provider_label(provider)} API key.", "error")
             return results
 
-        sources = main_vm.input_vm.sources()
+        sources = main_vm.input_vm.selected_sources()
         if not sources:
             main_vm.log_vm.add_log("Select at least one image or folder to begin.", "error")
             return results
@@ -77,7 +80,8 @@ def process_images(main_vm: MainViewModel) -> List[Dict[str, Any]]:
             main_vm.log_vm.add_log("No valid image files found.", "error")
             return results
 
-        main_vm.log_vm.add_log(f"Found {len(images)} images to process.", "info")
+        total_images = len(images)
+        main_vm.log_vm.add_log(f"Found {total_images} images to process.", "info")
         main_vm.footer_vm.total_tokens = 0
 
         os.makedirs(base_output_folder, exist_ok=True)
@@ -93,7 +97,6 @@ def process_images(main_vm: MainViewModel) -> List[Dict[str, Any]]:
         summary_path = os.path.join(session_path, generate_output_filename())
         log_path = os.path.join(session_path, "failed.log")
 
-        main_vm.footer_vm.progress_value = 0
         failed_items: list[tuple[str, str]] = []
 
         with open(summary_path, "w", encoding="utf-8") as summary_file:
@@ -143,7 +146,8 @@ def process_images(main_vm: MainViewModel) -> List[Dict[str, Any]]:
                     failed_items.append((image_path, str(exc)))
                     main_vm.log_vm.add_log(f"FAIL: {image_path} :: An unexpected error occurred: {exc}", "error")
 
-                main_vm.footer_vm.progress_value = index + 1
+                progress_percentage = int(((index + 1) / total_images) * 100)
+                progress_callback(progress_percentage)
 
         if failed_items:
             with open(log_path, "w", encoding="utf-8") as log_file:

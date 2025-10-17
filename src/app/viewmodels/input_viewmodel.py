@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -16,12 +15,14 @@ class InputViewModel(BaseViewModel):
     sources_summary_changed = Signal(str)
     include_subdirectories_changed = Signal(bool)
     image_count_text_changed = Signal(str)
+    selected_sources_changed = Signal(list)
 
     _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif"}
 
     def __init__(self) -> None:
         super().__init__()
         self._sources: list[str] = []
+        self._selected_sources: list[str] = []
         self._include_subdirectories = False
         self._image_count_text = ""
         self._sources_summary = "Drop images or folders to begin"
@@ -50,14 +51,25 @@ class InputViewModel(BaseViewModel):
     def sources(self) -> List[str]:
         return list(self._sources)
 
+    def selected_sources(self) -> List[str]:
+        return list(self._selected_sources)
+
     def set_sources(self, paths: List[str]) -> None:
         normalized = self._normalise(paths)
         if normalized == self._sources:
             return
         self._sources = normalized
+        self.set_selected_sources(self._sources)
         self.sources_changed.emit(self.sources())
         self._refresh_summary()
         self._update_image_count()
+
+    def set_selected_sources(self, paths: List[str]) -> None:
+        normalized = self._normalise(paths)
+        if normalized == self._selected_sources:
+            return
+        self._selected_sources = normalized
+        self.selected_sources_changed.emit(self.selected_sources())
 
     def add_sources(self, paths: List[str]) -> None:
         if not paths:
@@ -76,6 +88,7 @@ class InputViewModel(BaseViewModel):
         if not self._sources:
             return
         self._sources.clear()
+        self.set_selected_sources([])
         self.sources_changed.emit([])
         self._refresh_summary()
         self._update_image_count()

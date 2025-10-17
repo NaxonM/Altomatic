@@ -1,0 +1,152 @@
+/* ============================================
+   SOLARIZED LIGHT THEME
+   ============================================ */
+
+/* === BASE STYLES === */
+QWidget {
+    background: #fdf6e3;
+    color: #657b83;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    selection-background-color: #268bd2;
+    selection-color: #fdf6e3;
+}
+
+QMainWindow, QDialog {
+    background: #fdf6e3;
+}
+
+QLabel {
+    background: transparent;
+}
+
+/* === CONTAINERS & CARDS === */
+QFrame#AppBar, QFrame#WorkflowCanvas, QFrame#SurfaceCard, QFrame#InsetCard, QFrame#SessionOverview, QFrame#ActivityLogDock {
+    background: #eee8d5;
+    border: 1px solid #93a1a1;
+    border-radius: 16px;
+    padding: 10px 16px;
+}
+
+/* === TYPOGRAPHY === */
+QLabel[state="title"] {
+    font-size: 22px;
+    font-weight: 700;
+}
+QLabel[state="subtitle"] {
+    color: #839496;
+    font-size: 15px;
+}
+QLabel[state="muted"] {
+    color: #839496;
+}
+QLabel[state="caption"] {
+    color: #839496;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+/* === BUTTONS === */
+QPushButton {
+    background: #eee8d5;
+    color: #657b83;
+    border: 1px solid #93a1a1;
+    border-radius: 12px;
+    padding: 8px 14px;
+    font-weight: 600;
+}
+QPushButton:hover {
+    background: #93a1a1;
+}
+QPushButton[text-role="primary"] {
+    background: #268bd2;
+    color: #fdf6e3;
+    border: none;
+    border-radius: 12px;
+}
+
+/* === FORM INPUTS === */
+QLineEdit, QTextEdit, QComboBox, QListWidget, QTreeView {
+    background: #eee8d5;
+    border: 1.2px solid #93a1a1;
+    border-radius: 12px;
+    padding: 8px 12px;
+}
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QListWidget:focus {
+    border-color: #268bd2;
+}
+
+QProgressBar {
+    background: #eee8d5;
+    border: 1px solid #93a1a1;
+    border-radius: 12px;
+    height: 12px;
+    padding: 2px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background: #268bd2;
+    border-radius: 10px;
+}
+
+QCheckBox::indicator {
+    border-radius: 8px;
+}
+
+QDockWidget {
+    border-radius: 16px;
+}
+
+QDockWidget::title {
+    border-radius: 16px 16px 0 0;
+}
+
+QDockWidget::close-button,
+QDockWidget::float-button {
+    border-radius: 8px;
+}
+
+QStatusBar {
+    border-radius: 12px;
+}
+
+QToolTip {
+    border-radius: 10px;
+}
+
+QLabel#NotificationBanner {
+    border-radius: 12px;
+}
+
+QLabel#StatusBadge {
+    border-radius: 16px;
+}
+
+QTableView {
+    border-radius: 16px;
+}
+
+QHeaderView::section {
+    border-radius: 12px;
+}
+
+#DropArea {
+    border-radius: 16px;
+}
+
+QListWidget#SettingsNav {
+    border-radius: 16px;
+}
+
+QListWidget#SettingsNav::item {
+    border-radius: 12px;
+}
+
+QTabWidget#AdvancedTabs::pane {
+    border-radius: 16px;
+}
+
+QTabWidget#AdvancedTabs::tab {
+    border-radius: 12px 12px 0 0;
+}

@@ -1,7 +1,7 @@
-
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from typing import List
 
 from PySide6.QtCore import Qt, Signal
@@ -10,8 +10,9 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
     QMenu,
     QPushButton,
     QSizePolicy,
@@ -27,6 +28,7 @@ from ..viewmodels.input_viewmodel import InputViewModel
 
 class SourcesPanel(QFrame):
     pathsDropped = Signal(list)
+    selectionChanged = Signal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -69,11 +71,14 @@ class SourcesPanel(QFrame):
         self.placeholder_label.setProperty("state", "muted")
         self._stack_layout.addWidget(self.placeholder_label)
 
-        self.list_widget = QListWidget()
-        self.list_widget.setSelectionMode(QListWidget.ExtendedSelection)
-        self.list_widget.setMinimumHeight(120)
-        self.list_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._stack_layout.addWidget(self.list_widget)
+        self.table_widget = QTableWidget()
+        self.table_widget.setColumnCount(4)
+        self.table_widget.setHorizontalHeaderLabels(["", "Name", "Size", "Date Modified"])
+        self.table_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table_widget.setSelectionMode(QTableWidget.NoSelection)
+        self.table_widget.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table_widget.setSortingEnabled(True)
+        self._stack_layout.addWidget(self.table_widget)
 
         layout.addWidget(self._stack_container, 1)
 
@@ -96,6 +101,22 @@ class SourcesPanel(QFrame):
         layout.addLayout(footer_layout)
 
         self.set_empty_state(True)
+
+        self.table_widget.itemChanged.connect(self._on_item_changed)
+
+    def _on_item_changed(self, item: QTableWidgetItem):
+        if item.column() == 0:
+            self.selectionChanged.emit(self.get_selected_paths())
+
+    def get_selected_paths(self) -> List[str]:
+        selected_paths = []
+        for i in range(self.table_widget.rowCount()):
+            item = self.table_widget.item(i, 0)
+            if item and item.checkState() == Qt.Checked:
+                name_item = self.table_widget.item(i, 1)
+                if name_item:
+                    selected_paths.append(name_item.data(Qt.UserRole))
+        return selected_paths
 
     # --- Drag and drop handling ---
     def dragEnterEvent(self, event):  # type: ignore[override]
@@ -170,6 +191,7 @@ class InputView(BaseView):
         self.sources_panel.subdirectories_checkbox.toggled.connect(
             lambda checked: setattr(self.view_model, "include_subdirectories", checked)
         )
+        self.sources_panel.selectionChanged.connect(self.view_model.set_selected_sources)
 
         # ViewModel to View
         self.view_model.sources_changed.connect(self._populate_sources)
@@ -203,19 +225,35 @@ class InputView(BaseView):
             self.view_model.add_sources([path])
 
     def _remove_selected(self) -> None:
-        selections = self.sources_panel.list_widget.selectedItems()
-        for item in selections:
-            path = item.data(Qt.UserRole)
-            if path:
-                self.view_model.remove_source(path)
+        selected_paths = self.sources_panel.get_selected_paths()
+        for path in selected_paths:
+            self.view_model.remove_source(path)
 
     def _populate_sources(self, sources: List[str]) -> None:
-        self.sources_panel.list_widget.clear()
+        self.sources_panel.table_widget.setRowCount(0)
+        self.sources_panel.table_widget.setSortingEnabled(False)
         for path in sources:
-            item = QListWidgetItem(os.path.basename(path) or path)
-            item.setToolTip(path)
-            item.setData(Qt.UserRole, path)
-            self.sources_panel.list_widget.addItem(item)
+            row_position = self.sources_panel.table_widget.rowCount()
+            self.sources_panel.table_widget.insertRow(row_position)
+
+            checkbox = QTableWidgetItem()
+            checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            checkbox.setCheckState(Qt.Checked)
+            self.sources_panel.table_widget.setItem(row_position, 0, checkbox)
+
+            name_item = QTableWidgetItem(os.path.basename(path) or path)
+            name_item.setData(Qt.UserRole, path)
+            self.sources_panel.table_widget.setItem(row_position, 1, name_item)
+
+            size_item = QTableWidgetItem(f"{os.path.getsize(path) / 1024:.2f} KB")
+            size_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.sources_panel.table_widget.setItem(row_position, 2, size_item)
+
+            modified_date = datetime.fromtimestamp(os.path.getmtime(path))
+            date_item = QTableWidgetItem(modified_date.strftime("%Y-%m-%d %H:%M:%S"))
+            self.sources_panel.table_widget.setItem(row_position, 3, date_item)
+
+        self.sources_panel.table_widget.setSortingEnabled(True)
         self.sources_panel.set_empty_state(len(sources) == 0)
 
     # --- Public helpers for external triggers ---

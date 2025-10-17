@@ -1,4 +1,3 @@
-
 import os
 from typing import Any, Dict, List
 
@@ -26,10 +25,13 @@ class MainViewModel(BaseViewModel):
 
     processingStarted = Signal()
     processingFinished = Signal(bool)
-    resultsReady = Signal(list)
+    resultsReady = Signal(list, str)
+    notification = Signal(str, str)
 
     def __init__(self):
         super().__init__()
+        self.main_window = None
+        self._config = {}
         self.input_vm = InputViewModel()
         self.header_vm = HeaderViewModel()
         self.footer_vm = FooterViewModel()
@@ -49,6 +51,9 @@ class MainViewModel(BaseViewModel):
         self.footer_vm.process_button_clicked.connect(self.start_processing)
         self.prompts_model_vm.prompts_vm.edit_prompts_clicked.connect(self.open_prompt_editor)
 
+        self.processingStarted.connect(lambda: self.notification.emit("Processing images...", "warning"))
+        self.processingFinished.connect(lambda: self.notification.emit("", ""))
+
         self.input_vm.sources_changed.connect(self._update_header_from_sources)
         self.input_vm.sources_summary_changed.connect(
             lambda summary: self.header_vm.update_summaries({"summary_output": summary})
@@ -67,25 +72,38 @@ class MainViewModel(BaseViewModel):
 
     def start_processing(self):
         """Starts the image processing in a background thread."""
+        self.footer_vm.progress_value = 0
         self.processingStarted.emit()
         worker = Worker(self)
         worker.signals.finished.connect(self.show_results)
+        worker.signals.progress.connect(self.update_progress)
         self.thread_pool.start(worker)
 
-    def show_results(self, results: List[Dict[str, Any]]):
-        """Displays the results window."""
+    def update_progress(self, value: int):
+        """Updates the progress bar value."""
+        self.footer_vm.progress_value = value
+
+    def show_results(self, results: List[Dict[str, Any]], session_path: str):
+        """Displays the results window and removes successful sources."""
         if self.workflow_vm.output_vm.show_results_table:
-            self.resultsReady.emit(results)
+            self.resultsReady.emit(results, session_path)
         else:
             # Still provide results payload for potential summaries
-            self.resultsReady.emit(results if results else [])
+            self.resultsReady.emit(results if results else [], session_path)
+
+        if results:
+            for result in results:
+                self.input_vm.remove_source(result["original_path"])
+
         self.processingFinished.emit(bool(results))
 
     def open_prompt_editor(self):
         """Opens the prompt editor window."""
         prompt_editor_vm = PromptEditorViewModel()
         self.prompt_editor_view = PromptEditorView(prompt_editor_vm)
-        self.prompt_editor_view.exec() # Use exec for a modal dialog
+        if self.main_window:
+            self.prompt_editor_view.setParent(self.main_window)
+        self.prompt_editor_view.exec()
         # Refresh prompts in case they were changed
         self.prompts_model_vm.prompts_vm.prompts = prompt_editor_vm.prompts
         self.prompts_model_vm.prompts_vm.update_prompt_preview()
@@ -93,11 +111,16 @@ class MainViewModel(BaseViewModel):
 
     # --- Settings ---
     def _load_config(self):
-        config = load_config_file()
-        self._apply_config(config)
+        self._config = load_config_file()
+        self._apply_config(self._config)
 
-    def load_config(self):
-        self._load_config()
+    def get_window_geometry(self) -> str:
+        """Returns the window geometry from the config."""
+        return self._config.get("window_geometry", "")
+
+
+
+
 
     def _apply_config(self, config: Dict[str, Any]):
         provider_vm = self.prompts_model_vm.provider_vm
@@ -145,8 +168,6 @@ class MainViewModel(BaseViewModel):
         self._update_header_from_sources(self.input_vm.sources())
 
     def save_settings(self, geometry: str) -> None:
-        config = load_config_file()
-
         provider_vm = self.prompts_model_vm.provider_vm
         output_vm = self.workflow_vm.output_vm
         processing_vm = self.workflow_vm.processing_vm
@@ -155,35 +176,36 @@ class MainViewModel(BaseViewModel):
         appearance_vm = self.advanced_vm.appearance_vm
         context_vm = self.workflow_vm.context_vm
 
-        config.update(
-            {
-                "custom_output_path": output_vm.custom_output_path,
-                "output_folder_option": output_vm.output_folder_option,
-                "llm_provider": provider_vm.llm_provider,
-                "llm_model": provider_vm.model,
-                "openai_api_key": provider_vm.openai_api_key,
-                "openrouter_api_key": provider_vm.openrouter_api_key,
-                "proxy_enabled": network_vm.proxy_enabled,
-                "proxy_override": network_vm.proxy_override,
-                "filename_language": processing_vm.filename_language,
-                "alttext_language": processing_vm.alttext_language,
-                "name_detail_level": processing_vm.name_detail_level,
-                "vision_detail": processing_vm.vision_detail,
-                "ocr_enabled": processing_vm.ocr_enabled,
-                "tesseract_path": processing_vm.tesseract_path,
-                "ocr_language": processing_vm.ocr_language,
-                "ui_theme": appearance_vm.ui_theme,
-                "prompt_key": prompts_vm.selected_prompt,
-                "context_text": context_vm.context_text,
-                "input_sources": self.input_vm.sources(),
-                "include_subdirectories": self.input_vm.include_subdirectories,
-                "openai_model": config.get("openai_model", provider_vm.model if provider_vm.llm_provider == "openai" else config.get("openai_model")),
-                "openrouter_model": config.get("openrouter_model", provider_vm.model if provider_vm.llm_provider == "openrouter" else config.get("openrouter_model")),
-                "window_geometry": geometry,
-            }
-        )
+        config = {
+            "custom_output_path": output_vm.custom_output_path,
+            "output_folder_option": output_vm.output_folder_option,
+            "llm_provider": provider_vm.llm_provider,
+            "llm_model": provider_vm.model,
+            "openai_api_key": provider_vm.openai_api_key,
+            "openrouter_api_key": provider_vm.openrouter_api_key,
+            "proxy_enabled": network_vm.proxy_enabled,
+            "proxy_override": network_vm.proxy_override,
+            "filename_language": processing_vm.filename_language,
+            "alttext_language": processing_vm.alttext_language,
+            "name_detail_level": processing_vm.name_detail_level,
+            "vision_detail": processing_vm.vision_detail,
+            "ocr_enabled": processing_vm.ocr_enabled,
+            "tesseract_path": processing_vm.tesseract_path,
+            "ocr_language": processing_vm.ocr_language,
+            "ui_theme": appearance_vm.ui_theme,
+            "prompt_key": prompts_vm.selected_prompt,
+            "context_text": context_vm.context_text,
+            "input_sources": self.input_vm.sources(),
+            "include_subdirectories": self.input_vm.include_subdirectories,
+            "window_geometry": geometry,
+        }
 
-        save_config(config, geometry)
+        if provider_vm.llm_provider == "openai":
+            config["openrouter_model"] = self._config.get("openrouter_model")
+        else:
+            config["openai_model"] = self._config.get("openai_model")
+
+        save_config(config)
 
     def _update_header_from_sources(self, sources: List[str]) -> None:
         if not sources:
