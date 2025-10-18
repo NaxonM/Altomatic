@@ -497,12 +497,6 @@ def build_ui(root, user_config):
     chroma_frame.columnconfigure(0, weight=1)
     chroma_frame.rowconfigure(1, weight=1)
 
-    # Configure main_frame for a 2-column layout
-    main_frame.columnconfigure(0, weight=1, minsize=450)
-    main_frame.columnconfigure(1, weight=1, minsize=400)
-    main_frame.rowconfigure(0, weight=1)  # Main content row
-    main_frame.rowconfigure(1, weight=0)  # Footer row
-
     prompts_data = load_prompts()
     prompt_names = list(prompts_data.keys()) or ["default"]
     active_prompt = user_config.get("prompt_key", "default")
