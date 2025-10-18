@@ -590,12 +590,11 @@ def build_ui(root, user_config):
     # --- Create main layout containers ---
     main_frame.rowconfigure(0, weight=0)  # Input frame
     main_frame.rowconfigure(1, weight=0)  # Header
-    main_frame.rowconfigure(2, weight=1)  # Notebook
-    main_frame.rowconfigure(3, weight=0)  # Footer
+    main_frame.rowconfigure(1, weight=1)  # Notebook
+    main_frame.rowconfigure(2, weight=0)  # Footer
     main_frame.columnconfigure(0, weight=1)
 
     _build_input_frame(main_frame, state)
-    _build_header(main_frame, state)
     notebook = _build_notebook(main_frame, state)
     _build_footer(main_frame, state)
 
@@ -692,7 +691,7 @@ def _build_input_frame(parent, state) -> None:
     )
 
     options_line = ttk.Frame(input_card, style="Card.TFrame")
-    options_line.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+    options_line.grid(row=2, column=0, sticky="ew", pady=(4, 0))
     options_line.columnconfigure(1, weight=1)
 
     ttk.Checkbutton(
@@ -703,10 +702,9 @@ def _build_input_frame(parent, state) -> None:
         row=0, column=1, sticky="e"
     )
 
-def _build_header(parent, state) -> None:
-    """Build the top summary header."""
-    header = ttk.Frame(parent, style="Card.TFrame", padding=12)
-    header.grid(row=1, column=0, sticky="ew")
+    # Header is now part of the input card
+    header = ttk.Frame(input_card, style="Card.TFrame", padding=(0, 12, 0, 0))
+    header.grid(row=3, column=0, sticky="ew")
     header.columnconfigure((0, 1, 2), weight=1)
     state["summary_model"].grid(row=0, column=0)
     state["summary_prompt"].grid(row=0, column=1)
