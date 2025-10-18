@@ -539,7 +539,7 @@ def build_ui(root, user_config):
         # Config-backed state
         "input_type": tk.StringVar(value="Folder"),
         "input_path": tk.StringVar(value=""),
-        "include_subdirectories": tk.BooleanVar(value=user_config.get("include_subdirectories", False)),
+        "recursive_search": tk.BooleanVar(value=user_config.get("recursive_search", False)),
         "show_results_table": tk.BooleanVar(value=user_config.get("show_results_table", True)),
         "custom_output_path": tk.StringVar(value=user_config.get("custom_output_path", "")),
         "output_folder_option": tk.StringVar(value=user_config.get("output_folder_option", "Same as input")),
@@ -590,28 +590,28 @@ def build_ui(root, user_config):
     )
 
     # --- Create main layout containers ---
-    left_frame = ttk.Frame(main_frame)
-    left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
-    left_frame.rowconfigure(2, weight=1)
-    left_frame.columnconfigure(0, weight=1)
+    main_frame.rowconfigure(0, weight=0)  # Input frame
+    main_frame.rowconfigure(1, weight=1)  # Notebook
+    main_frame.rowconfigure(2, weight=0)  # Footer
+    main_frame.columnconfigure(0, weight=1)
 
-    # Build the UI components into the new layout
-    _build_input_frame(left_frame, state)
-    _build_header(left_frame, state)
-    notebook = _build_notebook(left_frame, state)
-    _build_log(main_frame, state)
+    _build_input_frame(main_frame, state)
+    notebook = _build_notebook(main_frame, state)
     _build_footer(main_frame, state)
 
     # Wire up tabs
     tab_workflow = ttk.Frame(notebook, padding=16)
     tab_prompts = ttk.Frame(notebook, padding=16)
     tab_advanced = ttk.Frame(notebook, padding=16)
+    tab_log = ttk.Frame(notebook, padding=16)
     notebook.add(tab_workflow, text="Workflow")
     notebook.add(tab_prompts, text="Prompts & Model")
     notebook.add(tab_advanced, text="Advanced")
+    notebook.add(tab_log, text="Activity Log")
     _build_tab_workflow(tab_workflow, state)
     _build_tab_prompts_model(tab_prompts, state)
     _build_tab_advanced(tab_advanced, state)
+    _build_log(tab_log, state)
 
     # Final state setup and initial calls
     _build_menus(menubar, root, state)
@@ -672,53 +672,44 @@ def _build_input_frame(parent, state) -> None:
     """Build the persistent input frame."""
     input_card = ttk.Frame(parent, style="Card.TFrame", padding=12)
     input_card.grid(row=0, column=0, sticky="ew", pady=(0, 16))
-    input_card.columnconfigure(1, weight=1)
+    input_card.columnconfigure(0, weight=1)
 
-    ttk.Label(input_card, text="Input type:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-    option = ttk.OptionMenu(input_card, state["input_type"], state["input_type"].get(), "Folder", "File")
-    option.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+    input_line = ttk.Frame(input_card, style="Card.TFrame")
+    input_line.grid(row=0, column=0, sticky="ew")
+    input_line.columnconfigure(0, weight=1)
 
-    ttk.Label(input_card, text="Input path:", style="TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-    entry = ttk.Entry(input_card, textvariable=state["input_path"], width=50)
-    entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    entry = ttk.Entry(input_line, textvariable=state["input_path"], width=50)
+    entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
     state["input_entry"] = entry
-    ttk.Button(input_card, text="Browse", command=lambda: _select_input(state), style="TButton").grid(
-        row=1, column=2, padx=5, pady=5
+    ttk.Button(input_line, text="Browse...", command=lambda: _select_input(state), style="TButton").grid(
+        row=0, column=1
     )
 
-    ttk.Checkbutton(input_card, text="Include subdirectories", variable=state["include_subdirectories"]).grid(
-        row=2, column=1, sticky="w", padx=5, pady=5
+    options_line = ttk.Frame(input_card, style="Card.TFrame")
+    options_line.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+    options_line.columnconfigure(1, weight=1)
+
+    ttk.Checkbutton(
+        options_line, text="Include subdirectories", variable=state["recursive_search"]
+    ).grid(row=0, column=0, sticky="w")
+
+    ttk.Label(options_line, textvariable=state["image_count"], style="Small.TLabel").grid(
+        row=0, column=1, sticky="e"
     )
-
-    ttk.Label(input_card, textvariable=state["image_count"], style="Small.TLabel").grid(
-        row=3, column=1, columnspan=2, sticky="w", padx=5
-    )
-
-def _build_header(parent, state) -> None:
-    """Build the top summary header."""
-    header = ttk.Frame(parent, style="Card.TFrame", padding=12)
-    header.grid(row=1, column=0, sticky="ew")
-    header.columnconfigure((0, 1, 2), weight=1)
-    ttk.Label(header, textvariable=state["summary_model"], style="Card.TLabel").grid(row=0, column=0)
-    ttk.Label(header, textvariable=state["summary_prompt"], style="Card.TLabel").grid(row=0, column=1)
-    ttk.Label(header, textvariable=state["summary_output"], style="Card.TLabel").grid(row=0, column=2)
-
 
 def _build_notebook(parent, state) -> ttk.Notebook:
     """Build the main notebook for settings."""
     notebook = ttk.Notebook(parent)
-    notebook.grid(row=2, column=0, sticky="nsew", pady=(16, 0))
+    notebook.grid(row=1, column=0, sticky="nsew", pady=(16, 0))
     return notebook
 
 
 def _build_log(parent, state) -> None:
     """Build the embedded activity log."""
-    log_frame = ttk.Labelframe(parent, text="Activity Log", style="Section.TLabelframe")
-    log_frame.grid(row=0, column=1, sticky="nsew")
-    log_frame.columnconfigure(0, weight=1)
-    log_frame.rowconfigure(1, weight=1)
+    parent.columnconfigure(0, weight=1)
+    parent.rowconfigure(1, weight=1)
 
-    btn_frame = ttk.Frame(log_frame, style="Section.TFrame")
+    btn_frame = ttk.Frame(parent, style="Section.TFrame")
     btn_frame.grid(row=0, column=0, sticky="ew", padx=10)
     ttk.Button(
         btn_frame, text="Copy", command=lambda: _copy_monitor(state), style="Secondary.TButton"
@@ -727,11 +718,11 @@ def _build_log(parent, state) -> None:
         btn_frame, text="Clear", command=lambda: _clear_monitor(state), style="Secondary.TButton"
     ).pack(side="left", padx=5)
 
-    log_text = tk.Text(log_frame, wrap="word", height=8, state="disabled", relief="solid", borderwidth=1)
+    log_text = tk.Text(parent, wrap="word", height=8, state="disabled", relief="solid", borderwidth=1)
     log_text.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
     state["log_text"] = log_text
 
-    scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=log_text.yview)
+    scrollbar = ttk.Scrollbar(parent, orient="vertical", command=log_text.yview)
     scrollbar.grid(row=1, column=1, sticky="ns", pady=(0, 10))
     log_text.configure(yscrollcommand=scrollbar.set)
 
@@ -749,7 +740,7 @@ def _build_log(parent, state) -> None:
 def _build_footer(parent, state) -> None:
     """Build the bottom footer/action bar."""
     footer = ttk.Frame(parent)
-    footer.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(16, 0))
+    footer.grid(row=2, column=0, sticky="ew", pady=(16, 0))
     footer.columnconfigure(1, weight=1)
 
     state["status_label"] = ttk.Label(footer, textvariable=state["status_var"], style="Status.TLabel")
@@ -1266,25 +1257,34 @@ def _clear_context(state, *, silent: bool = False) -> None:
 
 
 def _select_input(state) -> None:
-    if state["input_type"].get() == "Folder":
-        path = filedialog.askdirectory()
+    # Temporarily create a throwaway root window to open the dialog
+    temp_root = tk.Tk()
+    temp_root.withdraw()
+    # Ask the user to select a file or a folder
+    path = filedialog.askopenfilename(
+        title="Select an image file or any file in the target folder",
+        filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp *.heic *.heif"), ("All files", "*.*")],
+    )
+    temp_root.destroy()
+
+    if not path:
+        return
+
+    # If the user selected a directory, use it directly. Otherwise, use the directory of the selected file.
+    if os.path.isdir(path):
+        input_path = path
     else:
-        path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp *.heic *.heif")])
-    if path:
-        cleanup_temp_drop_folder(state)
-        state["input_path"].set(path)
-        if state["input_type"].get() == "Folder":
-            recursive = state["include_subdirectories"].get()
-            count = get_image_count_in_folder(path, recursive)
-        else:
-            count = 1
+        input_path = os.path.dirname(path)
 
-        state["image_count"].set(f"{count} image(s) selected.")
-        set_status(state, f"Ready to process {count} image(s).")
-        _clear_monitor(state)
-        update_summary(state)
-
-        _clear_context(state, silent=True)
+    cleanup_temp_drop_folder(state)
+    state["input_path"].set(input_path)
+    recursive = state["recursive_search"].get()
+    count = get_image_count_in_folder(input_path, recursive)
+    state["image_count"].set(f"{count} image(s) selected.")
+    set_status(state, f"Ready to process {count} image(s).")
+    _clear_monitor(state)
+    update_summary(state)
+    _clear_context(state, silent=True)
 
 
 def _select_output_folder(state) -> None:

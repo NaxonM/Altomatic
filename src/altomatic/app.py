@@ -59,9 +59,9 @@ def run() -> None:
 
     root = TkinterDnD.Tk()
     root.title("Altomatic")
-    stored_geometry = user_config.get("window_geometry", DEFAULT_CONFIG.get("window_geometry", "600x720"))
-    if stored_geometry == DEFAULT_CONFIG.get("window_geometry", "600x720"):
-        geometry = _scaled_geometry(root, 600, 720)
+    stored_geometry = user_config.get("window_geometry", DEFAULT_CONFIG.get("window_geometry", "540x680"))
+    if stored_geometry == DEFAULT_CONFIG.get("window_geometry", "540x680"):
+        geometry = _scaled_geometry(root, 540, 680)
     else:
         geometry = stored_geometry
     root.geometry(geometry)

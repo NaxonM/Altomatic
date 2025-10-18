@@ -21,6 +21,7 @@ def configure_drag_and_drop(root, state) -> None:
 def _handle_input_drop(event, state) -> None:
     paths_list = event.widget.tk.splitlist(event.data)
     input_files: list[str] = []
+    recursive = state["recursive_search"].get()
 
     for raw_path in paths_list:
         clean_path = raw_path.strip("{}")
@@ -28,7 +29,7 @@ def _handle_input_drop(event, state) -> None:
             cleanup_temp_drop_folder(state)
             state["input_type"].set("Folder")
             state["input_path"].set(clean_path)
-            count = get_image_count_in_folder(clean_path)
+            count = get_image_count_in_folder(clean_path, recursive)
             state["image_count"].set(f"{count} image(s) found.")
             if "context_widget" in state:
                 state["context_widget"].delete("1.0", "end")
@@ -62,7 +63,7 @@ def _handle_input_drop(event, state) -> None:
             state["temp_drop_folder"] = drop_folder
             state["input_type"].set("Folder")
             state["input_path"].set(drop_folder)
-            count = get_image_count_in_folder(drop_folder)
+            count = get_image_count_in_folder(drop_folder, recursive)
             state["image_count"].set(f"{count} image(s) dropped.")
             if "context_widget" in state:
                 state["context_widget"].delete("1.0", "end")
