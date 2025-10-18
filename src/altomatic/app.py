@@ -88,6 +88,22 @@ def run() -> None:
     state["ui_queue"] = ui_queue
 
     def start_image_processing():
+        # Pre-flight checks
+        provider = state["llm_provider"].get()
+        api_key_var = f"{provider}_api_key"
+        if not state[api_key_var].get().strip():
+            messagebox.showerror(
+                "API Key Missing",
+                f"The API key for {provider} is not set. Please add it in the 'Prompts & Model' tab.",
+            )
+            # Switch to the correct tab to guide the user
+            if "notebook" in state:
+                state["notebook"].select(1)  # 1 is the index for "Prompts & Model" tab
+            return
+
+        # Switch to log tab and start processing
+        if "notebook" in state:
+            state["notebook"].select(3)  # 3 is the index for "Activity Log" tab
         state["process_button"].config(state="disabled")
         set_status(state, "Starting...")
         thread = threading.Thread(

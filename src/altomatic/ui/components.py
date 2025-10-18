@@ -38,6 +38,36 @@ from ..utils import (
 from .themes import PALETTE, apply_theme, apply_theme_to_window
 
 
+class AnimatedLabel(ttk.Label):
+    def __init__(self, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.full_text = ""
+        self.running = False
+        self.bind("<Configure>", self.check_width)
+
+    def set_text(self, text):
+        self.full_text = text
+        self.check_width()
+
+    def check_width(self, event=None):
+        self.config(text=self.full_text)
+        self.update_idletasks()
+        if self.winfo_width() < self.winfo_reqwidth() and not self.running:
+            self.running = True
+            self.animate()
+        elif self.winfo_width() >= self.winfo_reqwidth() and self.running:
+            self.running = False
+
+    def animate(self):
+        if not self.running:
+            self.config(text=self.full_text)
+            return
+        text = self.cget("text")
+        text = text[1:] + text[0]
+        self.config(text=text)
+        self.after(200, self.animate)
+
+
 def _scaled_geometry(widget: tk.Misc, base_width: int, base_height: int) -> str:
     widget.update_idletasks()
     screen_w = widget.winfo_screenwidth()
@@ -114,49 +144,24 @@ def update_summary(state) -> None:
     model_id = model_var.get() if model_var is not None else DEFAULT_MODEL
     models = get_models_for_provider(provider)
     model_label = models.get(model_id, {}).get("label", model_id)
-    state["summary_model"].set(f"{get_provider_label(provider)}: {model_label}")
+    state["summary_model"].set_text(f"{get_provider_label(provider)}: {model_label}")
 
     prompts = state.get("prompts") or load_prompts()
     prompt_key = state["prompt_key"].get()
     prompt_entry = prompts.get(prompt_key) or prompts.get("default") or next(iter(prompts.values()), {})
-    state["summary_prompt"].set(f"Prompt: {prompt_entry.get('label', prompt_key)}")
+    state["summary_prompt"].set_text(f"Prompt: {prompt_entry.get('label', prompt_key)}")
 
     destination = state["output_folder_option"].get()
     if destination == "Custom":
         path = state["custom_output_path"].get().strip() or "(not set)"
-        state["summary_output"].set(f"Output: Custom → {path}")
+        state["summary_output"].set_text(f"Output: Custom → {path}")
     else:
-        state["summary_output"].set(f"Output: {destination}")
+        state["summary_output"].set_text(f"Output: {destination}")
 
 
 def set_status(state, message: str) -> None:
     if "status_var" in state:
         state["status_var"].set(message)
-
-
-def update_summary(state) -> None:
-    if "summary_model" not in state:
-        return
-
-    provider_var = state.get("llm_provider")
-    provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
-    model_var = state.get("llm_model")
-    model_id = model_var.get() if model_var is not None else DEFAULT_MODEL
-    models = get_models_for_provider(provider)
-    model_label = models.get(model_id, {}).get("label", model_id)
-    state["summary_model"].set(f"{get_provider_label(provider)}: {model_label}")
-
-    prompts = state.get("prompts") or load_prompts()
-    prompt_key = state["prompt_key"].get()
-    prompt_entry = prompts.get(prompt_key) or prompts.get("default") or next(iter(prompts.values()), {})
-    state["summary_prompt"].set(f"Prompt: {prompt_entry.get('label', prompt_key)}")
-
-    destination = state["output_folder_option"].get()
-    if destination == "Custom":
-        path = state["custom_output_path"].get().strip() or "(not set)"
-        state["summary_output"].set(f"Output: Custom → {path}")
-    else:
-        state["summary_output"].set(f"Output: {destination}")
 
 
 def update_prompt_preview(state) -> None:
@@ -456,7 +461,6 @@ def build_ui(root, user_config):
 
     title_container = ttk.Frame(chrome_bar, style="Chrome.TFrame")
     title_container.grid(row=0, column=0, sticky="w")
-    ttk.Label(title_container, text="Altomatic", style="ChromeTitle.TLabel").pack(side="left")
 
     menu_container = ttk.Frame(chrome_bar, style="Chrome.TFrame")
     menu_container.grid(row=0, column=1, sticky="e")
@@ -571,9 +575,9 @@ def build_ui(root, user_config):
         "temp_drop_folder": None,
         "provider_model_map": provider_model_map,
         # Summary state
-        "summary_model": tk.StringVar(),
-        "summary_prompt": tk.StringVar(),
-        "summary_output": tk.StringVar(),
+        "summary_model": AnimatedLabel(),
+        "summary_prompt": AnimatedLabel(),
+        "summary_output": AnimatedLabel(),
         "_proxy_last_settings": None,
     }
 
@@ -591,11 +595,13 @@ def build_ui(root, user_config):
 
     # --- Create main layout containers ---
     main_frame.rowconfigure(0, weight=0)  # Input frame
-    main_frame.rowconfigure(1, weight=1)  # Notebook
-    main_frame.rowconfigure(2, weight=0)  # Footer
+    main_frame.rowconfigure(1, weight=0)  # Header
+    main_frame.rowconfigure(2, weight=1)  # Notebook
+    main_frame.rowconfigure(3, weight=0)  # Footer
     main_frame.columnconfigure(0, weight=1)
 
     _build_input_frame(main_frame, state)
+    _build_header(main_frame, state)
     notebook = _build_notebook(main_frame, state)
     _build_footer(main_frame, state)
 
@@ -673,9 +679,15 @@ def _build_input_frame(parent, state) -> None:
     input_card = ttk.Frame(parent, style="Card.TFrame", padding=12)
     input_card.grid(row=0, column=0, sticky="ew", pady=(0, 16))
     input_card.columnconfigure(0, weight=1)
+    state["input_card"] = input_card  # Make it available for dnd binding
+
+    # Add a label to the input card
+    ttk.Label(input_card, text="Drop files or a folder here, or use the browse button.", style="TLabel").grid(
+        row=0, column=0, sticky="w", padx=5, pady=5
+    )
 
     input_line = ttk.Frame(input_card, style="Card.TFrame")
-    input_line.grid(row=0, column=0, sticky="ew")
+    input_line.grid(row=1, column=0, sticky="ew")
     input_line.columnconfigure(0, weight=1)
 
     entry = ttk.Entry(input_line, textvariable=state["input_path"], width=50)
@@ -697,10 +709,21 @@ def _build_input_frame(parent, state) -> None:
         row=0, column=1, sticky="e"
     )
 
+def _build_header(parent, state) -> None:
+    """Build the top summary header."""
+    header = ttk.Frame(parent, style="Card.TFrame", padding=12)
+    header.grid(row=1, column=0, sticky="ew")
+    header.columnconfigure((0, 1, 2), weight=1)
+    state["summary_model"].grid(row=0, column=0)
+    state["summary_prompt"].grid(row=0, column=1)
+    state["summary_output"].grid(row=0, column=2)
+
+
 def _build_notebook(parent, state) -> ttk.Notebook:
     """Build the main notebook for settings."""
     notebook = ttk.Notebook(parent)
-    notebook.grid(row=1, column=0, sticky="nsew", pady=(16, 0))
+    notebook.grid(row=2, column=0, sticky="nsew", pady=(16, 0))
+    state["notebook"] = notebook
     return notebook
 
 
@@ -740,7 +763,7 @@ def _build_log(parent, state) -> None:
 def _build_footer(parent, state) -> None:
     """Build the bottom footer/action bar."""
     footer = ttk.Frame(parent)
-    footer.grid(row=2, column=0, sticky="ew", pady=(16, 0))
+    footer.grid(row=3, column=0, sticky="ew", pady=(16, 0))
     footer.columnconfigure(1, weight=1)
 
     state["status_label"] = ttk.Label(footer, textvariable=state["status_var"], style="Status.TLabel")
@@ -1616,7 +1639,7 @@ def _show_about(state) -> None:
 
     link = ttk.Label(wrapper, text="Visit GitHub Repository", style="Accent.TLabel", cursor="hand2")
     link.grid(row=3, column=0, sticky="w", pady=(16, 0))
-    link.bind("<Button-1>", lambda _event: webbrowser.open_new("https://github.com/MehdiDevX"))
+    link.bind("<Button-1>", lambda _event: webbrowser.open_new("https://github.com/NaxonM/Altomatic/"))
 
     ttk.Button(wrapper, text="Close", command=top.destroy, style="Accent.TButton").grid(
         row=4, column=0, sticky="e", pady=(20, 0)

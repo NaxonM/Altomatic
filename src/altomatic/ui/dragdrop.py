@@ -14,8 +14,8 @@ from .components import append_monitor_colored, cleanup_temp_drop_folder
 
 
 def configure_drag_and_drop(root, state) -> None:
-    state["input_entry"].drop_target_register(DND_FILES)
-    state["input_entry"].dnd_bind("<<Drop>>", lambda event: _handle_input_drop(event, state))
+    state["input_card"].drop_target_register(DND_FILES)
+    state["input_card"].dnd_bind("<<Drop>>", lambda event: _handle_input_drop(event, state))
 
 
 def _handle_input_drop(event, state) -> None:
