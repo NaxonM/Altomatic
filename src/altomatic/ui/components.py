@@ -539,6 +539,8 @@ def build_ui(root, user_config):
         # Config-backed state
         "input_type": tk.StringVar(value="Folder"),
         "input_path": tk.StringVar(value=""),
+        "include_subdirectories": tk.BooleanVar(value=user_config.get("include_subdirectories", False)),
+        "show_results_table": tk.BooleanVar(value=user_config.get("show_results_table", True)),
         "custom_output_path": tk.StringVar(value=user_config.get("custom_output_path", "")),
         "output_folder_option": tk.StringVar(value=user_config.get("output_folder_option", "Same as input")),
         "openai_api_key": tk.StringVar(value=user_config.get("openai_api_key", "")),
@@ -590,10 +592,11 @@ def build_ui(root, user_config):
     # --- Create main layout containers ---
     left_frame = ttk.Frame(main_frame)
     left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
-    left_frame.rowconfigure(1, weight=1)
+    left_frame.rowconfigure(2, weight=1)
     left_frame.columnconfigure(0, weight=1)
 
     # Build the UI components into the new layout
+    _build_input_frame(left_frame, state)
     _build_header(left_frame, state)
     notebook = _build_notebook(left_frame, state)
     _build_log(main_frame, state)
@@ -665,10 +668,36 @@ def build_ui(root, user_config):
     return state
 
 
+def _build_input_frame(parent, state) -> None:
+    """Build the persistent input frame."""
+    input_card = ttk.Frame(parent, style="Card.TFrame", padding=12)
+    input_card.grid(row=0, column=0, sticky="ew", pady=(0, 16))
+    input_card.columnconfigure(1, weight=1)
+
+    ttk.Label(input_card, text="Input type:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+    option = ttk.OptionMenu(input_card, state["input_type"], state["input_type"].get(), "Folder", "File")
+    option.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+    ttk.Label(input_card, text="Input path:", style="TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+    entry = ttk.Entry(input_card, textvariable=state["input_path"], width=50)
+    entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    state["input_entry"] = entry
+    ttk.Button(input_card, text="Browse", command=lambda: _select_input(state), style="TButton").grid(
+        row=1, column=2, padx=5, pady=5
+    )
+
+    ttk.Checkbutton(input_card, text="Include subdirectories", variable=state["include_subdirectories"]).grid(
+        row=2, column=1, sticky="w", padx=5, pady=5
+    )
+
+    ttk.Label(input_card, textvariable=state["image_count"], style="Small.TLabel").grid(
+        row=3, column=1, columnspan=2, sticky="w", padx=5
+    )
+
 def _build_header(parent, state) -> None:
     """Build the top summary header."""
     header = ttk.Frame(parent, style="Card.TFrame", padding=12)
-    header.grid(row=0, column=0, sticky="ew")
+    header.grid(row=1, column=0, sticky="ew")
     header.columnconfigure((0, 1, 2), weight=1)
     ttk.Label(header, textvariable=state["summary_model"], style="Card.TLabel").grid(row=0, column=0)
     ttk.Label(header, textvariable=state["summary_prompt"], style="Card.TLabel").grid(row=0, column=1)
@@ -678,7 +707,7 @@ def _build_header(parent, state) -> None:
 def _build_notebook(parent, state) -> ttk.Notebook:
     """Build the main notebook for settings."""
     notebook = ttk.Notebook(parent)
-    notebook.grid(row=1, column=0, sticky="nsew", pady=(16, 0))
+    notebook.grid(row=2, column=0, sticky="nsew", pady=(16, 0))
     return notebook
 
 
@@ -760,7 +789,7 @@ def _build_tab_workflow(frame, state) -> None:
     for tab in (input_tab, processing_tab, output_tab):
         tab.columnconfigure(0, weight=1)
 
-    workflow_tabs.add(input_tab, text="Input & Context")
+    workflow_tabs.add(input_tab, text="Context")
     workflow_tabs.add(processing_tab, text="Processing Options")
     workflow_tabs.add(output_tab, text="Output")
 
@@ -768,27 +797,11 @@ def _build_tab_workflow(frame, state) -> None:
     input_card.grid(row=0, column=0, sticky="nsew")
     input_card.columnconfigure(1, weight=1)
 
-    ttk.Label(input_card, text="Input type:", style="TLabel").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-    option = ttk.OptionMenu(input_card, state["input_type"], state["input_type"].get(), "Folder", "File")
-    option.grid(row=0, column=1, sticky="w", padx=5, pady=5)
-
-    ttk.Label(input_card, text="Input path:", style="TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-    entry = ttk.Entry(input_card, textvariable=state["input_path"], width=50)
-    entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
-    state["input_entry"] = entry
-    ttk.Button(input_card, text="Browse", command=lambda: _select_input(state), style="TButton").grid(
-        row=1, column=2, padx=5, pady=5
-    )
-
-    ttk.Label(input_card, textvariable=state["image_count"], style="Small.TLabel").grid(
-        row=2, column=1, columnspan=2, sticky="w", padx=5
-    )
-
     ttk.Label(input_card, text="Context notes:", style="TLabel").grid(
-        row=3, column=0, sticky="nw", padx=5, pady=(8, 0)
+        row=0, column=0, sticky="nw", padx=5, pady=(8, 0)
     )
     context_frame = ttk.Frame(input_card, style="Section.TFrame")
-    context_frame.grid(row=3, column=1, columnspan=2, sticky="ew", padx=5, pady=(8, 5))
+    context_frame.grid(row=0, column=1, columnspan=2, sticky="ew", padx=5, pady=(8, 5))
     context_frame.columnconfigure(0, weight=1)
     context_entry = tk.Text(context_frame, height=6, wrap="word", relief="solid", borderwidth=1)
     context_entry.grid(row=0, column=0, sticky="nsew")
@@ -798,9 +811,9 @@ def _build_tab_workflow(frame, state) -> None:
 
     char_count_var = tk.StringVar(value="0 characters")
     state["context_char_count"] = char_count_var
-    ttk.Label(input_card, textvariable=char_count_var, style="Small.TLabel").grid(row=4, column=1, sticky="w", padx=5)
+    ttk.Label(input_card, textvariable=char_count_var, style="Small.TLabel").grid(row=1, column=1, sticky="w", padx=5)
     ttk.Button(input_card, text="Clear", command=lambda: _clear_context(state), style="Secondary.TButton").grid(
-        row=4, column=2, sticky="e", padx=5
+        row=1, column=2, sticky="e", padx=5
     )
 
     def update_char_count(event=None):
@@ -902,13 +915,20 @@ def _build_tab_workflow(frame, state) -> None:
     ttk.Button(output_card, text="Browse", command=lambda: _select_output_folder(state), style="TButton").grid(
         row=1, column=2, padx=5, pady=5
     )
+
+    ttk.Checkbutton(
+        output_card,
+        text="Show interactive results table after processing",
+        variable=state["show_results_table"],
+    ).grid(row=2, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 0))
+
     ttk.Label(
         output_card,
         text="Alt-text report and renamed images will be stored in a session folder.",
         style="Small.TLabel",
         wraplength=420,
         justify="left",
-    ).grid(row=2, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 0))
+    ).grid(row=3, column=0, columnspan=3, sticky="w", padx=5, pady=(10, 0))
 
 
 def _build_tab_prompts_model(frame, state) -> None:
@@ -1249,12 +1269,13 @@ def _select_input(state) -> None:
     if state["input_type"].get() == "Folder":
         path = filedialog.askdirectory()
     else:
-        path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp")])
+        path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp *.heic *.heif")])
     if path:
         cleanup_temp_drop_folder(state)
         state["input_path"].set(path)
         if state["input_type"].get() == "Folder":
-            count = get_image_count_in_folder(path)
+            recursive = state["include_subdirectories"].get()
+            count = get_image_count_in_folder(path, recursive)
         else:
             count = 1
 
