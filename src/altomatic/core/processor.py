@@ -5,9 +5,13 @@ from __future__ import annotations
 import os
 import shutil
 from queue import Queue
+from typing import Dict, Any, List
+
+from PIL import UnidentifiedImageError
 
 from ..models import DEFAULT_PROVIDER, get_provider_label
 from ..services.ai import describe_image
+from ..services.providers.exceptions import AuthenticationError, APIError, NetworkError
 from ..ui import cleanup_temp_drop_folder
 from ..utils.images import (
     generate_output_filename,
@@ -21,6 +25,7 @@ from ..utils.images import (
 def process_images(state) -> None:
     """The core image processing pipeline."""
     ui_queue: Queue = state["ui_queue"]
+    results: List[Dict[str, Any]] = []
 
     try:
         provider_var = state.get("llm_provider")
@@ -45,10 +50,22 @@ def process_images(state) -> None:
             ui_queue.put({"type": "error", "title": "Invalid Input", "value": "Input path does not exist."})
             return
 
+        base_output_folder = get_output_folder(state)
+        if not os.access(base_output_folder, os.W_OK):
+            ui_queue.put(
+                {
+                    "type": "error",
+                    "title": "Permission Error",
+                    "value": f"Cannot write to the selected output directory:\n{base_output_folder}",
+                }
+            )
+            return
+
         if state["input_type"].get() == "File":
             images = [input_path]
         else:
-            images = get_all_images(input_path)
+            recursive = state["include_subdirectories"].get()
+            images = get_all_images(input_path, recursive)
 
         if not images:
             ui_queue.put({"type": "error", "title": "No Images", "value": "No valid image files found."})
@@ -57,7 +74,6 @@ def process_images(state) -> None:
         ui_queue.put({"type": "log", "value": f"Found {len(images)} images to process.", "level": "info"})
         state["total_tokens"].set(0)
 
-        base_output_folder = get_output_folder(state)
         os.makedirs(base_output_folder, exist_ok=True)
 
         session_name = generate_session_folder_name()
@@ -83,7 +99,7 @@ def process_images(state) -> None:
                     result = describe_image(state, image_path)
 
                     if not result or "name" not in result or "alt" not in result:
-                        raise ValueError("Invalid or empty response from the model.")
+                        raise APIError("Invalid or empty response from the model.")
 
                     base_name = slugify(result["name"])[:100]
                     if not base_name:
@@ -105,9 +121,23 @@ def process_images(state) -> None:
                     summary_file.write(f"Alt: {result['alt']}\n\n")
                     ui_queue.put({"type": "log", "value": f"-> {final_name}", "level": "success"})
 
-                except Exception as exc:
+                    results.append({
+                        "original_path": image_path,
+                        "original_filename": os.path.basename(image_path),
+                        "new_filename": final_name,
+                        "alt_text": result["alt"]
+                    })
+
+                except UnidentifiedImageError:
+                    exc_message = "Unsupported or corrupted image format."
+                    failed_items.append((image_path, exc_message))
+                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc_message}", "level": "error"})
+                except (AuthenticationError, APIError, NetworkError) as exc:
                     failed_items.append((image_path, str(exc)))
                     ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc}", "level": "error"})
+                except Exception as exc:
+                    failed_items.append((image_path, str(exc)))
+                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: An unexpected error occurred: {exc}", "level": "error"})
 
                 ui_queue.put({"type": "progress", "value": index + 1})
 
@@ -137,7 +167,11 @@ def process_images(state) -> None:
             f"Total images analyzed overall: {new_total}"
         )
         ui_queue.put({"type": "log", "value": message.replace("\n", " | "), "level": "info"})
-        ui_queue.put({"type": "done", "value": message})
+
+        if state["show_results_table"].get():
+            ui_queue.put({"type": "done_with_results", "value": message, "results": results})
+        else:
+            ui_queue.put({"type": "done", "value": message})
 
     except Exception as exc:
         ui_queue.put(

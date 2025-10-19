@@ -27,7 +27,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "openrouter_api_key": "",
     "proxy_enabled": True,
     "proxy_override": "",
-    "window_geometry": "1185x730",
+    "window_geometry": "1200x950",
     "filename_language": "English",
     "alttext_language": "English",
     "name_detail_level": "Detailed",

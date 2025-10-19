@@ -17,7 +17,7 @@ from typing import Literal
 
 from PIL import Image, ImageOps
 
-
+SUPPORTED_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif")
 ImageFormat = Literal["JPEG", "PNG"]
 
 
@@ -170,24 +170,38 @@ def generate_output_filename() -> str:
     return f"altomatic-output-{_timestamp_prefix()}-{generate_short_id()}.txt"
 
 
-def get_image_count_in_folder(folder: str) -> int:
+def get_image_count_in_folder(folder: str, recursive: bool) -> int:
     if not os.path.isdir(folder):
         return 0
-    return len([
-        file
-        for file in os.listdir(folder)
-        if file.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
-    ])
+
+    count = 0
+    if recursive:
+        for root, _, files in os.walk(folder):
+            for file in files:
+                if file.lower().endswith(SUPPORTED_EXTENSIONS):
+                    count += 1
+    else:
+        for file in os.listdir(folder):
+            if file.lower().endswith(SUPPORTED_EXTENSIONS):
+                count += 1
+    return count
 
 
-def get_all_images(folder: str) -> list[str]:
+def get_all_images(folder: str, recursive: bool) -> list[str]:
     if not os.path.isdir(folder):
         return []
-    return [
-        os.path.join(folder, file)
-        for file in os.listdir(folder)
-        if file.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
-    ]
+
+    images = []
+    if recursive:
+        for root, _, files in os.walk(folder):
+            for file in files:
+                if file.lower().endswith(SUPPORTED_EXTENSIONS):
+                    images.append(os.path.join(root, file))
+    else:
+        for file in os.listdir(folder):
+            if file.lower().endswith(SUPPORTED_EXTENSIONS):
+                images.append(os.path.join(folder, file))
+    return images
 
 
 def get_output_folder(state) -> str:

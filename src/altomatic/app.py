@@ -13,6 +13,7 @@ from .config.manager import DEFAULT_CONFIG, load_config, reset_config, save_conf
 from .core.processor import process_images
 from .ui.components import append_monitor_colored, build_ui, set_status
 from .ui.dragdrop import configure_drag_and_drop
+from .ui.results import create_results_window
 from .ui.themes import apply_theme
 from .utils import configure_global_proxy, set_proxy_preferences
 
@@ -22,16 +23,16 @@ def _scaled_geometry(widget, base_width: int, base_height: int) -> str:
     screen_w = widget.winfo_screenwidth()
     screen_h = widget.winfo_screenheight()
 
-    min_w = int(screen_w * 0.55)
-    max_w = int(screen_w * 0.9)
-    min_h = int(screen_h * 0.55)
+    min_w = int(screen_w * 0.4)
+    max_w = int(screen_w * 0.8)
+    min_h = int(screen_h * 0.5)
     max_h = int(screen_h * 0.9)
 
     width = min(max(base_width, min_w), max_w)
     height = min(max(base_height, min_h), max_h)
 
-    width = max(720, min(width, screen_w - 40))
-    height = max(540, min(height, screen_h - 80))
+    width = max(540, min(width, screen_w - 40))
+    height = max(600, min(height, screen_h - 80))
 
     return f"{width}x{height}"
 
@@ -58,22 +59,21 @@ def run() -> None:
 
     root = TkinterDnD.Tk()
     root.title("Altomatic")
-    stored_geometry = user_config.get("window_geometry", DEFAULT_CONFIG.get("window_geometry", "1185x730"))
-    if stored_geometry == DEFAULT_CONFIG.get("window_geometry", "1185x730"):
-        geometry = _scaled_geometry(root, 1185, 730)
+    stored_geometry = user_config.get("window_geometry", DEFAULT_CONFIG.get("window_geometry", "540x680"))
+    if stored_geometry == DEFAULT_CONFIG.get("window_geometry", "540x680"):
+        geometry = _scaled_geometry(root, 540, 680)
     else:
         geometry = stored_geometry
     root.geometry(geometry)
     root.resizable(True, True)
     _apply_window_icon(root)
 
-    current_theme = user_config.get("ui_theme", "Arctic Light")  # Changed default
+    current_theme = user_config.get("ui_theme", "Arctic Light")
     apply_theme(root, current_theme)
 
     state = build_ui(root, user_config)
     state["root"] = root
 
-    # Apply the theme once the window is mapped to the screen
     has_been_mapped = False
 
     def on_first_map(event):
@@ -84,12 +84,26 @@ def run() -> None:
 
     root.bind("<Map>", on_first_map)
 
-    # Create a thread-safe queue for communication
     ui_queue = queue.Queue()
     state["ui_queue"] = ui_queue
 
     def start_image_processing():
-        """Run image processing in a separate thread."""
+        # Pre-flight checks
+        provider = state["llm_provider"].get()
+        api_key_var = f"{provider}_api_key"
+        if not state[api_key_var].get().strip():
+            messagebox.showerror(
+                "API Key Missing",
+                f"The API key for {provider} is not set. Please add it in the 'Prompts & Model' tab.",
+            )
+            # Switch to the correct tab to guide the user
+            if "notebook" in state:
+                state["notebook"].select(1)  # 1 is the index for "Prompts & Model" tab
+            return
+
+        # Switch to log tab and start processing
+        if "notebook" in state:
+            state["notebook"].select(3)  # 3 is the index for "Activity Log" tab
         state["process_button"].config(state="disabled")
         set_status(state, "Starting...")
         thread = threading.Thread(
@@ -100,7 +114,6 @@ def run() -> None:
         thread.start()
 
     def process_queue():
-        """Check queue for messages from the processor and update UI."""
         try:
             message = ui_queue.get_nowait()
             msg_type = message.get("type")
@@ -120,6 +133,10 @@ def run() -> None:
                 state["process_button"].config(state="normal")
                 set_status(state, "✅ Done!")
                 messagebox.showinfo("Done", value)
+            elif msg_type == "done_with_results":
+                state["process_button"].config(state="normal")
+                set_status(state, "✅ Done!")
+                create_results_window(state, message.get("results"))
             elif msg_type == "error":
                 state["process_button"].config(state="normal")
                 messagebox.showerror(message.get("title", "Error"), value)
@@ -146,6 +163,5 @@ def run() -> None:
 
     root.protocol("WM_DELETE_WINDOW", on_close)
 
-    # Start the queue processor
     root.after(100, process_queue)
     root.mainloop()
