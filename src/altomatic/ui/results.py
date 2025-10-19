@@ -5,7 +5,7 @@ from tkinter import ttk
 import pyperclip
 from PIL import Image, ImageTk
 
-from .components import _apply_window_icon, _scaled_geometry
+from .ui_toolkit import _apply_window_icon, _scaled_geometry
 from .themes import PALETTE, apply_theme_to_window
 
 def create_results_window(state, results):

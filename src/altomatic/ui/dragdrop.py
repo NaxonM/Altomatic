@@ -10,7 +10,7 @@ import shutil
 import tempfile
 
 from ..utils import get_image_count_in_folder
-from .components import append_monitor_colored, cleanup_temp_drop_folder
+from .ui_toolkit import append_monitor_colored, cleanup_temp_drop_folder
 
 
 def configure_drag_and_drop(root, state) -> None:

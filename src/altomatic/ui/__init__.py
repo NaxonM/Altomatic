@@ -1,6 +1,7 @@
 """UI package for Altomatic."""
 
-from .components import build_ui, append_monitor_colored, cleanup_temp_drop_folder, update_token_label
+from .components import build_ui
+from .ui_toolkit import append_monitor_colored, cleanup_temp_drop_folder, update_token_label
 from .dragdrop import configure_drag_and_drop
 from .themes import apply_theme
 

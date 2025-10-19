@@ -472,9 +472,17 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
     style = ttk.Style(root)
     style.theme_use("clam")
 
+    # Typography
+    font_body = ("Segoe UI", 10)
+    font_h1 = ("Segoe UI Semibold", 14)
+    font_h2 = ("Segoe UI Semibold", 12)
+    font_small = ("Segoe UI", 9)
+    font_button = ("Segoe UI Semibold", 10)
+    font_h3 = ("Segoe UI Semibold", 11)
+
     root.configure(bg=palette["background"])
-    root.option_add("*Font", "{Segoe UI} 10")
-    root.option_add("*Menu.font", "{Segoe UI} 10")
+    root.option_add("*Font", font_body)
+    root.option_add("*Menu.font", font_body)
     root.option_add("*Menu.background", palette["surface"])
     root.option_add("*Menu.foreground", palette["foreground"])
 
@@ -499,14 +507,14 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
         "ChromeTitle.TLabel",
         background=palette["surface"],
         foreground=palette["foreground"],
-        font=("Segoe UI Semibold", 12),
+        font=font_h2,
     )
     style.configure(
         "ChromeMenu.TLabel",
         background=palette["surface"],
         foreground=palette["muted"],
         padding=(10, 6),
-        font=("Segoe UI", 10),
+        font=font_body,
     )
     style.map(
         "ChromeMenu.TLabel",
@@ -526,7 +534,7 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
         "Section.TLabelframe.Label",
         background=palette["background"],
         foreground=palette["muted"],
-        font=("Segoe UI Semibold", 10),
+        font=font_body,
     )
 
     # Text and inputs
@@ -534,7 +542,13 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
         "TLabel",
         background=palette["surface"],
         foreground=palette["foreground"],
-        font=("Segoe UI", 10),
+        font=font_body,
+    )
+    style.configure(
+        "Header.TLabel",
+        background=palette["surface"],
+        foreground=palette["foreground"],
+        font=font_h3,
     )
     style.configure(
         "Card.TLabel",
@@ -544,7 +558,7 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
     style.configure(
         "Small.TLabel",
         background=palette["surface"],
-        font=("Segoe UI", 9),
+        font=font_small,
         foreground=palette["muted"],
     )
     style.configure(
@@ -555,7 +569,7 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
     style.configure(
         "Status.TLabel",
         background=palette["surface"],
-        font=("Segoe UI", 9),
+        font=font_small,
         foreground=palette["muted"],
     )
 
@@ -575,6 +589,15 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
     style.map(
         "TEntry",
         bordercolor=[("focus", focus_border)],
+        background=[("active", _blend(palette["surface"], palette["primary"], 0.05))],
+    )
+
+    style.map(
+        "TButton",
+        background=[
+            ("pressed", _blend(palette["primary"], "#000000", 0.2)),
+            ("active", _blend(palette["primary"], "#ffffff", 0.1)),
+        ],
     )
 
     # Warning style for validation feedback
@@ -657,7 +680,7 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
         background=palette["background"],
         foreground=palette["muted"],
         padding=(18, 10),
-        font=("Segoe UI Semibold", 10),
+        font=font_button,
         borderwidth=0,
     )
     style.map(
@@ -678,11 +701,11 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
         relief="flat",
         borderwidth=1,
         bordercolor=button_base,
-        font=("Segoe UI Semibold", 10),
+        font=font_button,
     )
     style.map(
         "TButton",
-        background=[("active", button_hover), ("pressed", button_pressed)],
+        background=[("active", button_hover), ("pressed", button_pressed), ("focus", button_hover)],
         bordercolor=[("focus", focus_border), ("active", focus_border)],
         foreground=[("disabled", _blend(palette["foreground"], palette["background"], 0.6))],
     )

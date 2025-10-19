@@ -11,7 +11,8 @@ from tkinterdnd2 import TkinterDnD
 
 from .config.manager import DEFAULT_CONFIG, load_config, reset_config, save_config
 from .core.processor import process_images
-from .ui.components import append_monitor_colored, build_ui, set_status
+from .ui.components import build_ui
+from .ui.ui_toolkit import append_monitor_colored, set_status
 from .ui.dragdrop import configure_drag_and_drop
 from .ui.results import create_results_window
 from .ui.themes import apply_theme
