@@ -20,8 +20,10 @@ from ..utils import (
 from .themes import apply_theme
 from ._shared import _create_section_header, _create_info_label
 from .dialogs.about import show_about
+from .dialogs.settings import open_settings_dialog
 from .ui_toolkit import (
     AnimatedLabel,
+    PlaceholderEntry,
     update_summary,
     update_model_pricing,
     update_prompt_preview,
@@ -64,7 +66,7 @@ def build_ui(root, user_config):
             menu.grab_release()
 
     def _on_file(event):
-        _popup_menu([("Exit", root.destroy)], event)
+        _popup_menu([("Settings", lambda: open_settings_dialog(state)), ("Exit", root.destroy)], event)
 
     def _on_help(event):
         _popup_menu([("About", lambda: show_about(state))], event)
@@ -76,6 +78,8 @@ def build_ui(root, user_config):
     help_button = ttk.Label(menu_frame, text="Help", style="ChromeMenu.TLabel")
     help_button.grid(row=0, column=1)
     help_button.bind("<Button-1>", _on_help)
+
+    ttk.Separator(main_container, orient="horizontal").grid(row=1, column=0, sticky="ew")
 
     # Content area with padding between header and input section
     content_frame = ttk.Frame(main_container, padding=(20, 8, 20, 20))
@@ -181,7 +185,7 @@ def build_ui(root, user_config):
     tab_log = ttk.Frame(notebook, padding=(0, 16, 0, 0))
 
     notebook.add(tab_workflow, text="Workflow")
-    notebook.add(tab_configuration, text="Configuration")
+    notebook.add(tab_configuration, text="Prompts & Models")
     notebook.add(tab_log, text="Activity Log")
 
     from .views.view_workflow import build_tab_workflow
@@ -197,7 +201,14 @@ def build_ui(root, user_config):
 
     def on_output_folder_change(*args):
         is_custom = state["output_folder_option"].get() == "Custom"
-        state["custom_output_entry"].config(state="normal" if is_custom else "disabled")
+        if is_custom:
+            state["custom_output_label"].grid()
+            state["custom_output_entry"].grid()
+            state["custom_output_browse_button"].grid()
+        else:
+            state["custom_output_label"].grid_remove()
+            state["custom_output_entry"].grid_remove()
+            state["custom_output_browse_button"].grid_remove()
         update_summary(state)
 
     def on_model_change(*_):
@@ -258,16 +269,18 @@ def _build_input_card(parent, state) -> None:
     header_frame.grid(row=0, column=0, sticky="ew", pady=(0, 12))
     header_frame.columnconfigure(0, weight=1)
     _create_section_header(header_frame, "Input Selection").grid(row=0, column=0, sticky="w")
-    _create_info_label(header_frame, "Drop files or folders here, or use the browse button to select images.").grid(
-        row=1, column=0, sticky="w", pady=(4, 0)
-    )
 
     # Input path selection
     input_frame = ttk.Frame(input_card, style="Section.TFrame")
     input_frame.grid(row=1, column=0, sticky="ew", pady=(0, 12))
     input_frame.columnconfigure(0, weight=1)
 
-    entry = ttk.Entry(input_frame, textvariable=state["input_path"], width=50)
+    entry = PlaceholderEntry(
+        input_frame,
+        textvariable=state["input_path"],
+        placeholder="Drop files/folders here or browse...",
+        width=50,
+    )
     entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
     state["input_entry"] = entry
     ttk.Button(input_frame, text="Browse...", command=lambda: _select_input(state), style="TButton").grid(

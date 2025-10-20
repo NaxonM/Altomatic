@@ -92,20 +92,20 @@ class OpenRouterProvider(BaseProvider):
             if e.response.status_code == 401:
                 raise AuthenticationError("Invalid OpenRouter API key.") from e
 
-            message = e.response.text
             try:
                 error_data = e.response.json()
                 error_details = error_data.get("error", {})
 
-                # Dig for a more specific message from the underlying provider
+                # Prioritize the most specific error message from the underlying provider
                 provider_message = error_details.get("provider_error", {}).get("message")
                 if provider_message:
-                    message = provider_message
+                    message = f"Provider returned error: {provider_message}"
                 else:
+                    # Fallback to the main error message from OpenRouter
                     message = error_details.get("message", e.response.text)
-
             except json.JSONDecodeError:
-                pass  # Use the raw text if JSON parsing fails
+                # If the response is not JSON, use the raw text
+                message = e.response.text
 
             raise APIError(f"OpenRouter API error ({e.response.status_code}): {message}") from e
 

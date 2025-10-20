@@ -98,6 +98,8 @@ class CollapsiblePane(ttk.Frame):
         self._toggle_button.grid(row=0, column=1, sticky="e", padx=5)
 
         self.frame = ttk.Frame(self, style="Card.TFrame", padding=(16, 0, 16, 16))
+        self.frame.rowconfigure(0, weight=1)
+        self.frame.columnconfigure(0, weight=1)
 
         self.bind("<Button-1>", self._toggle)
         self._header_label.bind("<Button-1>", self._toggle)
@@ -643,117 +645,80 @@ def update_api_key_validation_display(provider: str, api_key: str, status_label:
     else:
         status_label.config(text=f"⚠ {message}", foreground="#d97706")
 
+def _refresh_model_choices(state) -> None:
+    provider_key = state["llm_provider"].get()
+    models = get_models_for_provider(provider_key)
+    menu = state["model_option_menu"]
+    menu.delete(0, "end")
+
+    if not models:
+        state["model_label_var"].set("No models available")
+        return
+
+    for model_id, info in models.items():
+        label = info.get("label", model_id)
+        menu.add_command(label=label, command=lambda value=model_id: state["llm_model"].set(value))
+
+    current_model = state["llm_model"].get()
+    if current_model not in models:
+        fallback = state["provider_model_map"].get(provider_key) or get_default_model(provider_key)
+        if fallback not in models:
+            fallback = next(iter(models.keys()))
+        state["llm_model"].set(fallback)
+        current_model = fallback
+
+    state["model_label_var"].set(models[current_model].get("label", current_model))
+
+def _refresh_provider_sections(state) -> None:
+    provider_key = state["llm_provider"].get()
+    state["provider_label_var"].set(get_provider_label(provider_key))
+
+    # Show/hide API sections based on selected provider
+    if provider_key == "openai":
+        state["openai_section"].grid(row=1, column=0, sticky="ew")
+        state["openrouter_section"].grid_remove()
+    elif provider_key == "openrouter":
+        state["openai_section"].grid_remove()
+        state["openrouter_section"].grid(row=2, column=0, sticky="ew")
+    else:
+        state["openai_section"].grid_remove()
+        state["openrouter_section"].grid_remove()
+
+    # Update provider status
+    has_api_key = False
+    if provider_key == "openai":
+        has_api_key = bool(state["openai_api_key"].get())
+    elif provider_key == "openrouter":
+        has_api_key = bool(state["openrouter_api_key"].get())
+
+    status_text = "● Ready" if has_api_key else "● Not configured"
+    state["provider_status_var"].set(status_text)
+
+    # Show/hide refresh button
+    refresh_button = state.get("refresh_openrouter_button")
+    if refresh_button:
+        if provider_key == "openrouter":
+            refresh_button.grid(row=0, column=2, sticky="e", padx=(16, 0))
+        else:
+            refresh_button.grid_remove()
+
+def _update_api_status_labels(state) -> None:
+    openai_key = state["openai_api_key"].get()
+    update_api_key_validation_display("openai", openai_key, state["openai_status_label"])
+    openrouter_key = state["openrouter_api_key"].get()
+    update_api_key_validation_display("openrouter", openrouter_key, state["openrouter_status_label"])
+    _refresh_provider_sections(state)
+
 def initialize_provider_ui(state) -> None:
     """Initialize the provider UI state and event handlers."""
-    def refresh_model_choices() -> None:
-        provider_key = state["llm_provider"].get()
-        models = get_models_for_provider(provider_key)
-        menu = state["model_option_menu"]
-        menu.delete(0, "end")
-
-        if not models:
-            state["model_label_var"].set("No models available")
-            return
-
-        for model_id, info in models.items():
-            label = info.get("label", model_id)
-            menu.add_command(label=label, command=lambda value=model_id: state["llm_model"].set(value))
-
-        current_model = state["llm_model"].get()
-        if current_model not in models:
-            fallback = state["provider_model_map"].get(provider_key) or get_default_model(provider_key)
-            if fallback not in models:
-                fallback = next(iter(models.keys()))
-            state["llm_model"].set(fallback)
-            current_model = fallback
-
-        state["model_label_var"].set(models[current_model].get("label", current_model))
-
-    def refresh_provider_sections() -> None:
-        provider_key = state["llm_provider"].get()
-        state["provider_label_var"].set(get_provider_label(provider_key))
-
-        # Show/hide API sections based on selected provider
-        if provider_key == "openai":
-            state["openai_section"].grid(row=1, column=0, sticky="ew")
-            state["openrouter_section"].grid_remove()
-        elif provider_key == "openrouter":
-            state["openai_section"].grid_remove()
-            state["openrouter_section"].grid(row=2, column=0, sticky="ew")
-        else:
-            # Fallback - hide both if unknown provider
-            state["openai_section"].grid_remove()
-            state["openrouter_section"].grid_remove()
-
-        # Update provider status
-        has_api_key = False
-        if provider_key == "openai":
-            has_api_key = bool(state["openai_api_key"].get())
-        elif provider_key == "openrouter":
-            has_api_key = bool(state["openrouter_api_key"].get())
-
-        status_text = "● Ready" if has_api_key else "● Not configured"
-        state["provider_status_var"].set(status_text)
-
-        # Show/hide refresh button based on provider
-        refresh_button = state.get("refresh_openrouter_button")
-        if refresh_button:
-            if provider_key == "openrouter":
-                refresh_button.grid(row=0, column=2, sticky="e", padx=(16, 0))
-            else:
-                refresh_button.grid_remove()
-
-    def sync_model_label(*_) -> None:
-        provider_key = state["llm_provider"].get()
-        models = get_models_for_provider(provider_key)
-        current_model = state["llm_model"].get()
-        model_info = models.get(current_model, {})
-        state["model_label_var"].set(model_info.get("label", current_model))
-
-        # Update capabilities display
-        capabilities = model_info.get("capabilities", ["text"])
-        capabilities_list = []
-        if "vision" in capabilities:
-            capabilities_list.append("Vision")
-        if "text" in capabilities:
-            capabilities_list.append("Text")
-        if "audio" in capabilities:
-            capabilities_list.append("Audio")
-
-        capabilities_text = ", ".join(capabilities_list) if capabilities_list else "Text"
-        state["model_capabilities_label"].config(text=f"Capabilities: {capabilities_text}")
-
-        # Update pricing display with enhanced information
-        _update_model_pricing_display(state, provider_key, current_model, model_info)
-
-    def update_api_status_labels() -> None:
-        # Update OpenAI status with validation
-        openai_key = state["openai_api_key"].get()
-        update_api_key_validation_display("openai", openai_key, state["openai_status_label"])
-
-        # Update OpenRouter status with validation
-        openrouter_key = state["openrouter_api_key"].get()
-        update_api_key_validation_display("openrouter", openrouter_key, state["openrouter_status_label"])
-
-        # Update provider status indicator
-        _refresh_provider_sections()
-
-    # Set up event handlers
-    def on_provider_change(*_):
-        refresh_provider_sections()
-        refresh_model_choices()
-
-    state["llm_provider"].trace_add("write", on_provider_change)
-    def on_api_key_change(*_):
-        update_api_status_labels()
-
+    state["llm_provider"].trace_add("write", lambda *_: (_refresh_provider_sections(state), _refresh_model_choices(state)))
     state["llm_model"].trace_add("write", lambda *_: _sync_model_label(state))
-    state["openai_api_key"].trace_add("write", on_api_key_change)
-    state["openrouter_api_key"].trace_add("write", on_api_key_change)
+    state["openai_api_key"].trace_add("write", lambda *_: _update_api_status_labels(state))
+    state["openrouter_api_key"].trace_add("write", lambda *_: _update_api_status_labels(state))
 
-    # Add real-time validation for API keys
-    def add_realtime_validation():
-        pass
+    # Initial UI state
+    _refresh_provider_sections(state)
+    _refresh_model_choices(state)
 
 
 class PlaceholderEntry(ttk.Entry):
@@ -780,3 +745,49 @@ class PlaceholderEntry(ttk.Entry):
         if self.get() == self.placeholder:
             self.delete(0, "end")
             self["foreground"] = self.default_fg_color
+
+
+class Tooltip:
+    """Create a tooltip for a given widget."""
+
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip_window = None
+        self.widget.bind("<Enter>", self.show_tooltip)
+        self.widget.bind("<Leave>", self.hide_tooltip)
+
+    def show_tooltip(self, event=None):
+        x, y, _, _ = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+
+        self.tooltip_window = tk.Toplevel(self.widget)
+        self.tooltip_window.wm_overrideredirect(True)
+        self.tooltip_window.wm_geometry(f"+{x}+{y}")
+
+        style = ttk.Style()
+        bg = style.lookup("TFrame", "background")
+        fg = style.lookup("TLabel", "foreground")
+
+        label = ttk.Label(
+            self.tooltip_window,
+            text=self.text,
+            justify="left",
+            background=bg,
+            foreground=fg,
+            relief="solid",
+            borderwidth=1,
+            wraplength=200,
+        )
+        label.pack(ipadx=4, ipady=4)
+
+    def hide_tooltip(self, event=None):
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+        self.tooltip_window = None
+
+
+def create_tooltip(widget, text):
+    """Create a tooltip for a widget."""
+    return Tooltip(widget, text)

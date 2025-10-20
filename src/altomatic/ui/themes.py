@@ -514,12 +514,12 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
         background=palette["surface"],
         foreground=palette["muted"],
         padding=(10, 6),
-        font=font_body,
+        font=font_button,
     )
     style.map(
         "ChromeMenu.TLabel",
-        foreground=[("active", palette["foreground"])],
-        background=[("active", _blend(palette["background"], palette["primary"], 0.12))],
+        foreground=[("active", palette["primary"])],
+        background=[("active", _blend(palette["surface"], palette["primary"], 0.1))],
     )
     style.configure(
         "Section.TLabelframe",

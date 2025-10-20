@@ -3,22 +3,15 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ...config import open_config_folder
 from ...models import AVAILABLE_PROVIDERS, get_models_for_provider, get_provider_label, refresh_openrouter_models, get_default_model, format_pricing
-from ..themes import PALETTE
 from ..ui_toolkit import (
     CollapsiblePane,
     _create_info_label,
-    _create_section_header,
     set_status,
+    update_model_pricing,
+    update_summary,
     validate_api_key,
-    update_api_key_validation_display,
     initialize_provider_ui,
-    _apply_proxy_preferences,
-    _refresh_detected_proxy,
-    _save_settings,
-    _reset_token_usage,
-    _reset_global_stats,
     append_monitor_colored,
     pyperclip,
     refresh_prompt_choices,
@@ -44,24 +37,6 @@ def build_tab_configuration(frame, state) -> None:
     pane2.grid(row=1, column=0, sticky="ew", pady=(0, 16))
     accordion_group.append(pane2)
     _build_prompt_management_section(pane2.frame, state)
-
-    # Appearance
-    pane3 = CollapsiblePane(frame, text="🎨 Appearance", accordion_group=accordion_group)
-    pane3.grid(row=2, column=0, sticky="ew", pady=(0, 16))
-    accordion_group.append(pane3)
-    _build_appearance_section(pane3.frame, state)
-
-    # Network
-    pane4 = CollapsiblePane(frame, text="🌐 Network", accordion_group=accordion_group)
-    pane4.grid(row=3, column=0, sticky="ew", pady=(0, 16))
-    accordion_group.append(pane4)
-    _build_proxy_section(pane4.frame, state)
-
-    # Maintenance
-    pane5 = CollapsiblePane(frame, text="🛠️ Maintenance", accordion_group=accordion_group)
-    pane5.grid(row=4, column=0, sticky="ew", pady=(0, 16))
-    accordion_group.append(pane5)
-    _build_maintenance_section(pane5.frame, state)
 
 
 def _build_prompt_management_section(parent, state) -> None:
@@ -139,22 +114,15 @@ def _build_prompt_management_section(parent, state) -> None:
 def _build_llm_provider_section(parent, state) -> None:
     """Build the redesigned LLM provider section with original show/hide behavior."""
     parent.columnconfigure(0, weight=1)
-    parent.rowconfigure(0, weight=1)
 
     # Main container with compact padding
-    main_container = ttk.Frame(parent, style="TFrame")
+    main_container = ttk.Frame(parent, style="Card.TFrame", padding=16)
     main_container.grid(row=0, column=0, sticky="nsew")
     main_container.columnconfigure(0, weight=1)
-    main_container.rowconfigure(1, weight=1)
 
-    # === Provider Selection (Compact) ===
-    provider_card = ttk.Frame(main_container, style="Card.TFrame", padding=8)
-    provider_card.grid(row=0, column=0, sticky="ew", pady=(0, 4))
-    provider_card.columnconfigure(1, weight=1)
-
-    # Provider selection with status
-    provider_select_frame = ttk.Frame(provider_card, style="Section.TFrame")
-    provider_select_frame.grid(row=1, column=0, columnspan=2, sticky="ew")
+    # --- Provider Selection ---
+    provider_select_frame = ttk.Frame(main_container, style="Section.TFrame")
+    provider_select_frame.grid(row=0, column=0, sticky="ew", pady=(0, 12))
     provider_select_frame.columnconfigure(1, weight=1)
 
     ttk.Label(provider_select_frame, text="Provider:", style="TLabel").grid(
@@ -186,14 +154,9 @@ def _build_llm_provider_section(parent, state) -> None:
     state["provider_status_label"] = provider_status_label
     state["provider_status_var"] = provider_status_var
 
-    # === Model Selection (Compact) ===
-    model_card = ttk.Frame(main_container, style="Card.TFrame", padding=0)
-    model_card.grid(row=1, column=0, sticky="ew", pady=(0, 4))
-    model_card.columnconfigure(2, weight=1)
-
-    # Model selection controls
-    model_select_frame = ttk.Frame(model_card, style="Section.TFrame")
-    model_select_frame.grid(row=1, column=0, columnspan=3, sticky="ew")
+    # --- Model Selection ---
+    model_select_frame = ttk.Frame(main_container, style="Section.TFrame")
+    model_select_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
     model_select_frame.columnconfigure(1, weight=1)
 
     ttk.Label(model_select_frame, text="Model:", style="TLabel").grid(
@@ -259,8 +222,8 @@ def _build_llm_provider_section(parent, state) -> None:
     state["refresh_openrouter_button"] = refresh_button
 
     # Model information display
-    model_info_frame = ttk.Frame(model_card, style="Section.TFrame")
-    model_info_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+    model_info_frame = ttk.Frame(main_container, style="Section.TFrame")
+    model_info_frame.grid(row=2, column=0, sticky="ew", pady=(4, 12))
     model_info_frame.columnconfigure(0, weight=1)
 
     state["lbl_model_pricing"] = ttk.Label(
@@ -280,21 +243,17 @@ def _build_llm_provider_section(parent, state) -> None:
     capabilities_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
     state["model_capabilities_label"] = capabilities_label
 
-    # === API Keys Section (Show/Hide) ===
-    api_card = ttk.Frame(main_container, style="Card.TFrame", padding=0)
-    api_card.grid(row=2, column=0, sticky="ew", pady=(0, 4))
-    api_card.columnconfigure(0, weight=1)
-
+    # --- API Keys ---
     # OpenAI section (show/hide based on provider)
-    openai_frame = ttk.Frame(api_card, style="Section.TFrame", padding=8)
-    openai_frame.grid(row=1, column=0, sticky="ew")
+    openai_frame = ttk.Frame(main_container, style="Section.TFrame")
+    openai_frame.grid(row=3, column=0, sticky="ew", pady=(0, 4))
     openai_frame.columnconfigure(1, weight=1)
     _build_compact_openai_config(openai_frame, state)
     state["openai_section"] = openai_frame
 
     # OpenRouter section (show/hide based on provider)
-    openrouter_frame = ttk.Frame(api_card, style="Section.TFrame", padding=8)
-    openrouter_frame.grid(row=2, column=0, sticky="ew")
+    openrouter_frame = ttk.Frame(main_container, style="Section.TFrame")
+    openrouter_frame.grid(row=4, column=0, sticky="ew", pady=(0, 4))
     openrouter_frame.columnconfigure(1, weight=1)
     _build_compact_openrouter_config(openrouter_frame, state)
     state["openrouter_section"] = openrouter_frame
@@ -488,164 +447,3 @@ def _build_compact_openrouter_config(parent, state) -> None:
         justify="left"
     )
     features_label.grid(row=0, column=0, sticky="w")
-
-
-def _build_appearance_section(parent, state) -> None:
-    """Build the appearance settings section."""
-    parent.columnconfigure(0, weight=1)
-    appearance_card = ttk.Frame(parent, style="Card.TFrame", padding=16)
-    appearance_card.grid(row=0, column=0, sticky="nsew")
-    appearance_card.columnconfigure(0, weight=1)
-
-    # Theme selection
-    theme_frame = ttk.Frame(appearance_card, style="Section.TFrame")
-    theme_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
-    theme_frame.columnconfigure(1, weight=1)
-
-    ttk.Label(theme_frame, text="UI Theme:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=(0, 8)
-    )
-
-    themes = list(PALETTE.keys())
-    theme_var = tk.StringVar(value=state["ui_theme"].get())
-
-    def on_theme_change(theme_name):
-        theme_var.set(theme_name)
-        state["ui_theme"].set(theme_name)
-
-    theme_menu = ttk.OptionMenu(
-        theme_frame,
-        theme_var,
-        theme_var.get(),
-        *themes,
-        command=on_theme_change,
-    )
-    theme_menu.grid(row=0, column=1, sticky="w")
-
-    _create_info_label(
-        appearance_card,
-        "Choose your preferred color theme for the interface."
-    ).grid(row=2, column=0, sticky="w", pady=(12, 0))
-
-
-def _build_proxy_section(parent, state) -> None:
-    """Build the network proxy settings section."""
-    parent.columnconfigure(0, weight=1)
-    proxy_card = ttk.Frame(parent, style="Card.TFrame", padding=16)
-    proxy_card.grid(row=0, column=0, sticky="nsew")
-    proxy_card.columnconfigure(0, weight=1)
-
-    # Proxy enabled checkbox
-    proxy_frame = ttk.Frame(proxy_card, style="Section.TFrame")
-    proxy_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
-    proxy_frame.columnconfigure(0, weight=1)
-
-    ttk.Checkbutton(
-        proxy_frame,
-        text="Enable proxy",
-        variable=state["proxy_enabled"]
-    ).grid(row=0, column=0, sticky="w")
-
-    # Proxy override entry
-    override_frame = ttk.Frame(proxy_card, style="Section.TFrame")
-    override_frame.grid(row=2, column=0, sticky="ew", pady=(0, 4))
-    override_frame.columnconfigure(1, weight=1)
-
-    ttk.Label(override_frame, text="Proxy override:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=(0, 8)
-    )
-
-    proxy_entry = ttk.Entry(override_frame, textvariable=state["proxy_override"])
-    proxy_entry.grid(row=0, column=1, sticky="ew")
-    state["proxy_override_entry"] = proxy_entry
-
-    # Detected and effective proxy display
-    proxy_info_frame = ttk.Frame(proxy_card, style="Section.TFrame")
-    proxy_info_frame.grid(row=3, column=0, sticky="ew", pady=(0, 4))
-    proxy_info_frame.columnconfigure(0, weight=1)
-
-    ttk.Label(proxy_info_frame, text="Detected proxies:", style="Small.TLabel").grid(
-        row=0, column=0, sticky="w", pady=(0, 4)
-    )
-    detected_label = ttk.Label(
-        proxy_info_frame,
-        textvariable=state["proxy_detected_label"],
-        style="Small.TLabel",
-        justify="left"
-    )
-    detected_label.grid(row=1, column=0, sticky="w")
-
-    ttk.Label(proxy_info_frame, text="Effective proxies:", style="Small.TLabel").grid(
-        row=2, column=0, sticky="w", pady=(8, 4)
-    )
-    effective_label = ttk.Label(
-        proxy_info_frame,
-        textvariable=state["proxy_effective_label"],
-        style="Small.TLabel",
-        justify="left"
-    )
-    effective_label.grid(row=3, column=0, sticky="w")
-
-    _create_info_label(
-        proxy_card,
-        "Configure proxy settings for API requests. Leave override empty to use system proxy."
-    ).grid(row=4, column=0, sticky="w", pady=(12, 0))
-
-
-def _build_maintenance_section(parent, state) -> None:
-    """Build the maintenance and statistics section."""
-    parent.columnconfigure(0, weight=1)
-    maintenance_card = ttk.Frame(parent, style="Card.TFrame", padding=16)
-    maintenance_card.grid(row=0, column=0, sticky="nsew")
-    maintenance_card.columnconfigure(0, weight=1)
-
-    # Statistics frame
-    stats_frame = ttk.Frame(maintenance_card, style="Section.TFrame")
-    stats_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
-    stats_frame.columnconfigure(1, weight=1)
-
-    # Global statistics
-    global_stats_label = tk.StringVar(value="Images processed: 0")
-    state["global_images_count"] = global_stats_label
-
-    ttk.Label(stats_frame, text="Global Statistics:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=(0, 8)
-    )
-
-    ttk.Label(
-        stats_frame,
-        textvariable=global_stats_label,
-        style="Small.TLabel"
-    ).grid(row=0, column=1, sticky="w")
-
-    # Reset buttons
-    reset_frame = ttk.Frame(maintenance_card, style="Section.TFrame")
-    reset_frame.grid(row=2, column=0, sticky="ew", pady=(0, 4))
-    reset_frame.columnconfigure(2, weight=1)
-
-    ttk.Button(
-        reset_frame,
-        text="Reset Token Usage",
-        command=lambda: _reset_token_usage(state),
-        style="Secondary.TButton"
-    ).grid(row=0, column=0, sticky="w", padx=(0, 8))
-
-    ttk.Button(
-        reset_frame,
-        text="Reset Statistics",
-        command=lambda: _reset_global_stats(state),
-        style="Secondary.TButton"
-    ).grid(row=0, column=1, sticky="w", padx=(0, 8))
-
-    # Save settings button
-    ttk.Button(
-        reset_frame,
-        text="Save Settings",
-        command=lambda: _save_settings(state),
-        style="Accent.TButton"
-    ).grid(row=0, column=2, sticky="e")
-
-    _create_info_label(
-        maintenance_card,
-        "Reset counters and save current configuration. Settings are automatically saved when changed."
-    ).grid(row=3, column=0, sticky="w", pady=(12, 0))
