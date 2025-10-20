@@ -1,7 +1,6 @@
 """LLM integration layer."""
 
 from __future__ import annotations
-from typing import Any, Dict
 
 from ..models import DEFAULT_PROVIDER
 from ..prompts import get_prompt_template
@@ -16,6 +15,7 @@ from ..utils import (
 )
 from ..ui import append_monitor_colored
 
+
 def get_provider(provider_name: str):
     if provider_name == "openai":
         return OpenAIProvider()
@@ -23,6 +23,7 @@ def get_provider(provider_name: str):
         return OpenRouterProvider()
     else:
         raise ValueError(f"Unknown provider: {provider_name}")
+
 
 def describe_image(state, image_path: str) -> dict | None:
     proxy_enabled = state.get("proxy_enabled").get() if "proxy_enabled" in state else True
@@ -67,7 +68,8 @@ def describe_image(state, image_path: str) -> dict | None:
 
     name_words = "1-2" if detail_level == "minimal" else ("up to 3" if detail_level == "normal" else "up to 8")
     prompt_parts.append(
-        f"\nOutput requirements:\n- 'name': lowercase, dash-separated, {name_words} words in {name_lang.capitalize()}.\n- 'alt': single clear sentence in {alt_lang.capitalize()}."
+        f"\nOutput requirements:\n- 'name': lowercase, dash-separated, {name_words} words in "
+        f"{name_lang.capitalize()}.\n- 'alt': single clear sentence in {alt_lang.capitalize()}."
     )
 
     if ocr_text:

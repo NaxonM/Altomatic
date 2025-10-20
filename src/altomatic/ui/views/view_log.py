@@ -16,19 +16,13 @@ def build_log(parent, state) -> None:
     toolbar = ttk.Frame(parent, style="Section.TFrame")
     toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 12))
 
-    ttk.Button(
-        toolbar,
-        text="Copy Log",
-        command=lambda: _copy_monitor(state),
-        style="Secondary.TButton"
-    ).pack(side="left", padx=(0, 8))
+    ttk.Button(toolbar, text="Copy Log", command=lambda: _copy_monitor(state), style="Secondary.TButton").pack(
+        side="left", padx=(0, 8)
+    )
 
-    ttk.Button(
-        toolbar,
-        text="Clear Log",
-        command=lambda: _clear_monitor(state),
-        style="Secondary.TButton"
-    ).pack(side="left")
+    ttk.Button(toolbar, text="Clear Log", command=lambda: _clear_monitor(state), style="Secondary.TButton").pack(
+        side="left"
+    )
 
     # Log text area
     log_frame = ttk.Frame(parent, style="Section.TFrame")
@@ -36,14 +30,7 @@ def build_log(parent, state) -> None:
     log_frame.columnconfigure(0, weight=1)
     log_frame.rowconfigure(0, weight=1)
 
-    log_text = tk.Text(
-        log_frame,
-        wrap="word",
-        height=12,
-        state="disabled",
-        relief="solid",
-        borderwidth=1
-    )
+    log_text = tk.Text(log_frame, wrap="word", height=12, state="disabled", relief="solid", borderwidth=1)
     log_text.grid(row=0, column=0, sticky="nsew")
     state["log_text"] = log_text
 

@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
-import webbrowser
 from ..themes import PALETTE, apply_theme_to_window
 from ..ui_toolkit import _apply_window_icon
+
 
 def show_about(state) -> None:
     """Show the About dialog."""
@@ -25,18 +25,14 @@ def show_about(state) -> None:
     container.columnconfigure(0, weight=1)
 
     # Title
-    ttk.Label(
-        container,
-        text="Altomatic",
-        font=("Segoe UI Semibold", 18)
-    ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+    ttk.Label(container, text="Altomatic", font=("Segoe UI Semibold", 18)).grid(
+        row=0, column=0, sticky="w", pady=(0, 4)
+    )
 
     # Subtitle
-    ttk.Label(
-        container,
-        text="AI-Powered Image Description Tool",
-        style="Small.TLabel"
-    ).grid(row=1, column=0, sticky="w", pady=(0, 20))
+    ttk.Label(container, text="AI-Powered Image Description Tool", style="Small.TLabel").grid(
+        row=1, column=0, sticky="w", pady=(0, 20)
+    )
 
     # Description
     description = (
@@ -49,40 +45,22 @@ def show_about(state) -> None:
         "• Batch processing with progress tracking\n"
         "• Multiple theme options"
     )
-    ttk.Label(
-        container,
-        text=description,
-        wraplength=500,
-        justify="left"
-    ).grid(row=2, column=0, sticky="w", pady=(0, 20))
+    ttk.Label(container, text=description, wraplength=500, justify="left").grid(
+        row=2, column=0, sticky="w", pady=(0, 20)
+    )
 
     # Links
     link_frame = ttk.Frame(container, style="Section.TFrame")
     link_frame.grid(row=3, column=0, sticky="w", pady=(0, 20))
 
-    github_link = ttk.Label(
-        link_frame,
-        text="View on GitHub →",
-        style="Accent.TLabel",
-        cursor="hand2"
-    )
+    github_link = ttk.Label(link_frame, text="View on GitHub →", style="Accent.TLabel", cursor="hand2")
     github_link.pack(side="left")
-    github_link.bind(
-        "<Button-1>",
-        lambda _: webbrowser.open_new("https://github.com/NaxonM/Altomatic/")
-    )
+    github_link.bind("<Button-1>", lambda _: webbrowser.open_new("https://github.com/NaxonM/Altomatic/"))
 
     # Credits
-    ttk.Label(
-        container,
-        text="Created by Mehdi",
-        style="Small.TLabel"
-    ).grid(row=4, column=0, sticky="w")
+    ttk.Label(container, text="Created by Mehdi", style="Small.TLabel").grid(row=4, column=0, sticky="w")
 
     # Close button
-    ttk.Button(
-        container,
-        text="Close",
-        command=about_dialog.destroy,
-        style="Accent.TButton"
-    ).grid(row=5, column=0, sticky="e", pady=(20, 0))
+    ttk.Button(container, text="Close", command=about_dialog.destroy, style="Accent.TButton").grid(
+        row=5, column=0, sticky="e", pady=(20, 0)
+    )

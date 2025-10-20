@@ -121,12 +121,14 @@ def process_images(state) -> None:
                     summary_file.write(f"Alt: {result['alt']}\n\n")
                     ui_queue.put({"type": "log", "value": f"-> {final_name}", "level": "success"})
 
-                    results.append({
-                        "original_path": image_path,
-                        "original_filename": os.path.basename(image_path),
-                        "new_filename": final_name,
-                        "alt_text": result["alt"]
-                    })
+                    results.append(
+                        {
+                            "original_path": image_path,
+                            "original_filename": os.path.basename(image_path),
+                            "new_filename": final_name,
+                            "alt_text": result["alt"],
+                        }
+                    )
 
                 except UnidentifiedImageError:
                     exc_message = "Unsupported or corrupted image format."
@@ -137,7 +139,13 @@ def process_images(state) -> None:
                     ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc}", "level": "error"})
                 except Exception as exc:
                     failed_items.append((image_path, str(exc)))
-                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: An unexpected error occurred: {exc}", "level": "error"})
+                    ui_queue.put(
+                        {
+                            "type": "log",
+                            "value": f"FAIL: {image_path} :: An unexpected error occurred: {exc}",
+                            "level": "error",
+                        }
+                    )
 
                 ui_queue.put({"type": "progress", "value": index + 1})
 

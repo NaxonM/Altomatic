@@ -3,7 +3,9 @@ from tkinter import ttk, simpledialog, messagebox
 from ...prompts import load_prompts, save_prompts
 from ...utils import slugify
 from ..themes import PALETTE, apply_theme_to_window
-from ..ui_toolkit import _create_section_header, _scaled_geometry, _apply_window_icon, set_status, refresh_prompt_choices
+from ..ui_toolkit import _scaled_geometry, _apply_window_icon, set_status, refresh_prompt_choices
+from .._shared import _create_section_header
+
 
 def open_prompt_editor(state) -> None:
     """Open the prompt editor dialog window."""
@@ -213,7 +215,11 @@ def open_prompt_editor(state) -> None:
     def delete_prompt(event=None) -> None:
         key = current_key.get()
         if key == "default" or len(working) <= 1:
-            messagebox.showinfo("Cannot Delete", "The default prompt cannot be deleted, and you must keep at least one prompt.", parent=editor)
+            messagebox.showinfo(
+                "Cannot Delete",
+                "The default prompt cannot be deleted, and you must keep at least one prompt.",
+                parent=editor,
+            )
             return
         if messagebox.askyesno("Delete Prompt", f"Delete prompt '{working[key].get('label', key)}'?", parent=editor):
             working.pop(key, None)
@@ -238,11 +244,17 @@ def open_prompt_editor(state) -> None:
 
     # Button bar
     ttk.Button(button_bar, text="New", command=add_prompt, style="Accent.TButton").grid(row=0, column=0, padx=(0, 6))
-    ttk.Button(button_bar, text="Duplicate", command=duplicate_prompt, style="TButton").grid(row=0, column=1, padx=(0, 6))
-    ttk.Button(button_bar, text="Delete", command=delete_prompt, style="Secondary.TButton").grid(row=0, column=2, padx=(0, 6))
+    ttk.Button(button_bar, text="Duplicate", command=duplicate_prompt, style="TButton").grid(
+        row=0, column=1, padx=(0, 6)
+    )
+    ttk.Button(button_bar, text="Delete", command=delete_prompt, style="Secondary.TButton").grid(
+        row=0, column=2, padx=(0, 6)
+    )
     ttk.Label(button_bar, text="", style="TLabel").grid(row=0, column=3, padx=(12, 0))  # Spacer
     ttk.Button(button_bar, text="Save", command=save_changes, style="TButton").grid(row=0, column=4, padx=(0, 6))
-    ttk.Button(button_bar, text="Save & Close", command=save_and_close, style="Accent.TButton").grid(row=0, column=5, padx=(0, 6))
+    ttk.Button(button_bar, text="Save & Close", command=save_and_close, style="Accent.TButton").grid(
+        row=0, column=5, padx=(0, 6)
+    )
     ttk.Button(button_bar, text="Cancel", command=editor.destroy, style="TButton").grid(row=0, column=6, sticky="e")
 
     # Event bindings

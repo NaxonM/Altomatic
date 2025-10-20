@@ -40,9 +40,7 @@ def _scaled_geometry(widget, base_width: int, base_height: int) -> str:
 
 def _apply_window_icon(window) -> None:
     try:
-        with resources.as_file(
-            resources.files("altomatic.resources") / "altomatic_icon.ico"
-        ) as icon_path:
+        with resources.as_file(resources.files("altomatic.resources") / "altomatic_icon.ico") as icon_path:
             window.iconbitmap(default=str(icon_path))
     except Exception:
         pass
@@ -104,7 +102,7 @@ def run() -> None:
 
         # Switch to log tab and start processing
         if "notebook" in state:
-            state["notebook"].select(3)  # 3 is the index for "Activity Log" tab
+            state["notebook"].select(2)  # 2 is the index for "Activity Log" tab
         state["process_button"].config(state="disabled")
         set_status(state, "Starting...")
         thread = threading.Thread(

@@ -4,12 +4,13 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..ui_toolkit import (
-    _create_info_label,
-    _create_section_header,
     _browse_tesseract,
     _clear_context,
     _select_output_folder,
+    CollapsiblePane,
+    PlaceholderEntry,
 )
+from .._shared import _create_info_label, _create_section_header
 
 
 def build_tab_workflow(frame, state) -> None:
@@ -17,28 +18,35 @@ def build_tab_workflow(frame, state) -> None:
     frame.columnconfigure(0, weight=1)
 
     # === Context Section ===
-    _create_section_header(frame, "Context").grid(row=0, column=0, sticky="w", pady=(0, 8))
     context_card = ttk.Frame(frame, style="Card.TFrame", padding=16)
-    context_card.grid(row=1, column=0, sticky="nsew", pady=(0, 16))
-    context_card.columnconfigure(0, weight=1)
-    context_card.rowconfigure(1, weight=1)
+    context_card.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+    context_card.columnconfigure(1, weight=1)
 
-    _create_section_header(context_card, "Context Notes").grid(
-        row=0, column=0, sticky="w", pady=(0, 8)
-    )
-
-    _create_info_label(
-        context_card,
-        "Add optional context about these images to help the AI generate more accurate descriptions.",
-    ).grid(row=0, column=1, sticky="w", pady=(0, 8))
+    _create_section_header(context_card, "✍️ Context Notes").grid(row=0, column=0, sticky="w", pady=(0, 8))
 
     text_frame = ttk.Frame(context_card, style="Section.TFrame")
     text_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(0, 8))
     text_frame.columnconfigure(0, weight=1)
     text_frame.rowconfigure(0, weight=1)
 
-    context_entry = tk.Text(text_frame, height=8, wrap="word", relief="solid", borderwidth=1)
+    context_entry = tk.Text(text_frame, height=4, wrap="word", relief="solid", borderwidth=1)
     context_entry.grid(row=0, column=0, sticky="nsew")
+    placeholder = "Add optional context about these images..."
+    context_entry.insert("1.0", placeholder)
+    context_entry.config(foreground="grey")
+
+    def _clear_placeholder(e):
+        if context_entry.get("1.0", "end-1c") == placeholder:
+            context_entry.delete("1.0", "end")
+            context_entry.config(foreground="black")
+
+    def _add_placeholder(e):
+        if not context_entry.get("1.0", "end-1c"):
+            context_entry.insert("1.0", placeholder)
+            context_entry.config(foreground="grey")
+
+    context_entry.bind("<FocusIn>", _clear_placeholder)
+    context_entry.bind("<FocusOut>", _add_placeholder)
 
     context_scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=context_entry.yview)
     context_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -51,12 +59,10 @@ def build_tab_workflow(frame, state) -> None:
     char_count_var = tk.StringVar(value="0 characters")
     state["context_char_count"] = char_count_var
 
-    ttk.Label(stats_frame, textvariable=char_count_var, style="Small.TLabel").grid(
-        row=0, column=0, sticky="w"
+    ttk.Label(stats_frame, textvariable=char_count_var, style="Small.TLabel").grid(row=0, column=0, sticky="w")
+    ttk.Button(stats_frame, text="Clear", command=lambda: _clear_context(state), style="Secondary.TButton").grid(
+        row=0, column=1, sticky="e"
     )
-    ttk.Button(
-        stats_frame, text="Clear", command=lambda: _clear_context(state), style="Secondary.TButton"
-    ).grid(row=0, column=1, sticky="e")
 
     def update_char_count(event=None):
         content = context_entry.get("1.0", "end-1c")
@@ -71,14 +77,10 @@ def build_tab_workflow(frame, state) -> None:
         update_char_count()
 
     # === Processing Section ===
-    _create_section_header(frame, "Processing").grid(row=2, column=0, sticky="w", pady=(0, 8))
-    processing_card = ttk.Frame(frame, style="Card.TFrame", padding=16)
-    processing_card.grid(row=3, column=0, sticky="nsew", pady=(0, 16))
+    processing_pane = CollapsiblePane(frame, text="🤖 Processing Options")
+    processing_pane.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+    processing_card = processing_pane.frame
     processing_card.columnconfigure((0, 1, 2, 3), weight=1)
-
-    _create_section_header(processing_card, "Processing Options").grid(
-        row=0, column=0, columnspan=4, sticky="w", pady=(0, 12)
-    )
 
     # Language options
     ttk.Label(processing_card, text="Filename language:", style="TLabel").grid(
@@ -129,53 +131,43 @@ def build_tab_workflow(frame, state) -> None:
     ).grid(row=2, column=3, sticky="ew", pady=8)
 
     # OCR section
-    ttk.Separator(processing_card, orient="horizontal").grid(
-        row=3, column=0, columnspan=4, sticky="ew", pady=16
+    ocr_pane = CollapsiblePane(frame, text="📸 OCR Settings")
+    ocr_pane.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+    ocr_card = ocr_pane.frame
+    ocr_card.columnconfigure((0, 1, 2, 3), weight=1)
+
+    ttk.Checkbutton(ocr_card, text="Enable OCR before compression", variable=state["ocr_enabled"]).grid(
+        row=5, column=0, columnspan=4, sticky="w", pady=(0, 8)
     )
 
-    _create_section_header(processing_card, "OCR Settings").grid(
-        row=4, column=0, columnspan=4, sticky="w", pady=(0, 8)
-    )
-
-    ttk.Checkbutton(
-        processing_card, text="Enable OCR before compression", variable=state["ocr_enabled"]
-    ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(0, 8))
-
-    ttk.Label(processing_card, text="Tesseract path:", style="TLabel").grid(
+    ttk.Label(ocr_card, text="Tesseract path:", style="TLabel").grid(
         row=6, column=0, sticky="w", padx=(0, 8), pady=8
     )
-    ttk.Entry(processing_card, textvariable=state["tesseract_path"]).grid(
+    PlaceholderEntry(ocr_card, textvariable=state["tesseract_path"], placeholder="Path to Tesseract executable").grid(
         row=6, column=1, columnspan=2, sticky="ew", padx=(0, 8), pady=8
     )
-    ttk.Button(
-        processing_card, text="Browse", command=lambda: _browse_tesseract(state), style="TButton"
-    ).grid(row=6, column=3, sticky="ew", pady=8)
+    ttk.Button(ocr_card, text="Browse", command=lambda: _browse_tesseract(state), style="TButton").grid(
+        row=6, column=3, sticky="ew", pady=8
+    )
 
-    ttk.Label(processing_card, text="OCR language:", style="TLabel").grid(
+    ttk.Label(ocr_card, text="OCR language:", style="TLabel").grid(
         row=7, column=0, sticky="w", padx=(0, 8), pady=8
     )
-    ttk.Entry(processing_card, textvariable=state["ocr_language"], width=10).grid(
-        row=7, column=1, sticky="w", pady=8
-    )
+    ttk.Entry(ocr_card, textvariable=state["ocr_language"], width=10).grid(row=7, column=1, sticky="w", pady=8)
 
     _create_info_label(
-        processing_card,
+        ocr_card,
         "OCR extracts text from images before compression, improving AI descriptions for text-heavy images.",
     ).grid(row=8, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
     # === Output Section ===
-    _create_section_header(frame, "Output").grid(row=4, column=0, sticky="w", pady=(0, 8))
     output_card = ttk.Frame(frame, style="Card.TFrame", padding=16)
-    output_card.grid(row=5, column=0, sticky="nsew", pady=(0, 16))
+    output_card.grid(row=3, column=0, sticky="nsew", pady=(0, 8))
     output_card.columnconfigure(1, weight=1)
 
-    _create_section_header(output_card, "Output Settings").grid(
-        row=0, column=0, columnspan=3, sticky="w", pady=(0, 12)
-    )
+    _create_section_header(output_card, "💾 Output Settings").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 12))
 
-    ttk.Label(output_card, text="Save to:", style="TLabel").grid(
-        row=1, column=0, sticky="w", padx=(0, 8), pady=8
-    )
+    ttk.Label(output_card, text="Save to:", style="TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=8)
     ttk.OptionMenu(
         output_card,
         state["output_folder_option"],
@@ -186,20 +178,16 @@ def build_tab_workflow(frame, state) -> None:
         "Custom",
     ).grid(row=1, column=1, sticky="w", pady=8)
 
-    ttk.Label(output_card, text="Custom folder:", style="TLabel").grid(
-        row=2, column=0, sticky="w", padx=(0, 8), pady=8
-    )
+    ttk.Label(output_card, text="Custom folder:", style="TLabel").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=8)
     custom_output_entry = ttk.Entry(output_card, textvariable=state["custom_output_path"])
     custom_output_entry.grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=8)
     state["custom_output_entry"] = custom_output_entry
 
-    ttk.Button(
-        output_card, text="Browse", command=lambda: _select_output_folder(state), style="TButton"
-    ).grid(row=2, column=2, pady=8)
-
-    ttk.Separator(output_card, orient="horizontal").grid(
-        row=3, column=0, columnspan=3, sticky="ew", pady=16
+    ttk.Button(output_card, text="Browse", command=lambda: _select_output_folder(state), style="TButton").grid(
+        row=2, column=2, pady=8
     )
+
+    ttk.Separator(output_card, orient="horizontal").grid(row=3, column=0, columnspan=3, sticky="ew", pady=16)
 
     ttk.Checkbutton(
         output_card,

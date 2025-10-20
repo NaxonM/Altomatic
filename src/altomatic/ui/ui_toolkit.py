@@ -754,3 +754,29 @@ def initialize_provider_ui(state) -> None:
     # Add real-time validation for API keys
     def add_realtime_validation():
         pass
+
+
+class PlaceholderEntry(ttk.Entry):
+    """An entry widget that displays placeholder text."""
+
+    def __init__(self, master=None, placeholder="PLACEHOLDER", **kwargs):
+        super().__init__(master, **kwargs)
+
+        self.placeholder = placeholder
+        self.placeholder_color = "grey"
+        self.default_fg_color = self["foreground"]
+
+        self.bind("<FocusIn>", self._clear_placeholder)
+        self.bind("<FocusOut>", self._add_placeholder)
+
+        self._add_placeholder()
+
+    def _add_placeholder(self, e=None):
+        if not self.get():
+            self.insert(0, self.placeholder)
+            self["foreground"] = self.placeholder_color
+
+    def _clear_placeholder(self, e=None):
+        if self.get() == self.placeholder:
+            self.delete(0, "end")
+            self["foreground"] = self.default_fg_color

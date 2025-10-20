@@ -6,6 +6,7 @@ import ctypes
 import os
 import tkinter as tk
 from tkinter import ttk
+
 if os.name == "nt":
     DWMWA_USE_IMMERSIVE_DARK_MODE = 20
     DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
@@ -474,7 +475,6 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
 
     # Typography
     font_body = ("Segoe UI", 10)
-    font_h1 = ("Segoe UI Semibold", 14)
     font_h2 = ("Segoe UI Semibold", 12)
     font_small = ("Segoe UI", 9)
     font_button = ("Segoe UI Semibold", 10)

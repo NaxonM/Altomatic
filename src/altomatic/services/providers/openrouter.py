@@ -18,6 +18,7 @@ OPENROUTER_HEADERS = {
     "Accept": "application/json",
 }
 
+
 class OpenRouterProvider(BaseProvider):
     """OpenRouter provider."""
 
@@ -74,7 +75,7 @@ class OpenRouterProvider(BaseProvider):
 
             json_result = extract_json_from_string(response_text)
             if not json_result:
-                raise APIError(f"Model response was not valid JSON.")
+                raise APIError("Model response was not valid JSON.")
 
             usage_data = data.get("usage")
             if isinstance(usage_data, dict):
@@ -104,7 +105,7 @@ class OpenRouterProvider(BaseProvider):
                     message = error_details.get("message", e.response.text)
 
             except json.JSONDecodeError:
-                pass # Use the raw text if JSON parsing fails
+                pass  # Use the raw text if JSON parsing fails
 
             raise APIError(f"OpenRouter API error ({e.response.status_code}): {message}") from e
 

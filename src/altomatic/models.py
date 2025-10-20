@@ -169,10 +169,7 @@ def format_pricing(provider: str, model_id: str) -> str:
     if prompt_cost is None or completion_cost is None:
         return "Pricing unavailable"
 
-    return (
-        f"Input: ${prompt_cost:.2f} / 1M tokens | "
-        f"Output: ${completion_cost:.2f} / 1M tokens"
-    )
+    return f"Input: ${prompt_cost:.2f} / 1M tokens | " f"Output: ${completion_cost:.2f} / 1M tokens"
 
 
 DEFAULT_MODELS: dict[str, str] = {

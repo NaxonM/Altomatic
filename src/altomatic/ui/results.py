@@ -8,6 +8,7 @@ from PIL import Image, ImageTk
 from .ui_toolkit import _apply_window_icon, _scaled_geometry
 from .themes import PALETTE, apply_theme_to_window
 
+
 def create_results_window(state, results):
     """Create and display the interactive results window."""
     root = state.get("root")

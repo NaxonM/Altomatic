@@ -157,9 +157,7 @@ def configure_global_proxy(
         return dict(proxies)
 
 
-def get_requests_proxies(
-    *, enabled: bool | None = None, override: str | None = None
-) -> dict[str, str]:
+def get_requests_proxies(*, enabled: bool | None = None, override: str | None = None) -> dict[str, str]:
     """Return a proxies mapping suitable for the Requests library."""
 
     effective_enabled, effective_override = _effective_preferences(enabled, override)

@@ -1,0 +1,6 @@
+pytest
+pytest-mock
+pillow
+openai
+flake8
+black

@@ -2,6 +2,9 @@
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.black]
+line-length = 120
+
 [project]
 name = "altomatic"
 version = "0.1.0"

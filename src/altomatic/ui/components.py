@@ -7,7 +7,6 @@ from tkinter import ttk
 
 from ..models import (
     AVAILABLE_PROVIDERS,
-    DEFAULT_MODEL,
     DEFAULT_MODELS,
     DEFAULT_PROVIDER,
     get_default_model,
@@ -19,12 +18,10 @@ from ..utils import (
     get_requests_proxies,
 )
 from .themes import apply_theme
+from ._shared import _create_section_header, _create_info_label
 from .dialogs.about import show_about
-from .dialogs.prompt_editor import open_prompt_editor
 from .ui_toolkit import (
     AnimatedLabel,
-    _create_section_header,
-    _create_info_label,
     update_summary,
     update_model_pricing,
     update_prompt_preview,
@@ -32,27 +29,11 @@ from .ui_toolkit import (
     _update_provider_status_labels,
     _format_proxy_mapping,
     _select_input,
-    _select_output_folder,
-    _save_settings,
-    _reset_token_usage,
-    _reset_global_stats,
-    _clear_monitor,
-    _copy_monitor,
-    set_status,
-    append_monitor_colored,
-    refresh_prompt_choices,
-    update_token_label,
-    cleanup_temp_drop_folder,
-    _update_proxy_controls,
-    _update_proxy_effective_label,
-    _refresh_detected_proxy,
-    _clear_context,
-    _browse_tesseract,
 )
+
 
 def build_ui(root, user_config):
     """Build the main UI with improved layout and organization."""
-    
     # Main container
     main_container = ttk.Frame(root, padding=0)
     main_container.grid(row=0, column=0, sticky="nsew")
@@ -127,11 +108,7 @@ def build_ui(root, user_config):
         if value not in models_for_provider:
             provider_model_map[key] = fallback
 
-    active_model = (
-        user_config.get("llm_model")
-        or provider_model_map.get(provider)
-        or get_default_model(provider)
-    )
+    active_model = user_config.get("llm_model") or provider_model_map.get(provider) or get_default_model(provider)
     if active_model not in get_models_for_provider(provider):
         active_model = get_default_model(provider)
     provider_model_map[provider] = active_model
@@ -172,9 +149,6 @@ def build_ui(root, user_config):
         "prompt_names": prompt_names,
         "temp_drop_folder": None,
         "provider_model_map": provider_model_map,
-        "summary_model": AnimatedLabel(),
-        "summary_prompt": AnimatedLabel(),
-        "summary_output": AnimatedLabel(),
         "_proxy_last_settings": None,
     }
 
@@ -213,7 +187,7 @@ def build_ui(root, user_config):
     from .views.view_workflow import build_tab_workflow
     from .views.view_settings import build_tab_configuration
     from .views.view_log import build_log
-    
+
     build_tab_workflow(tab_workflow, state)
     build_tab_configuration(tab_configuration, state)
     build_log(tab_log, state)
@@ -221,7 +195,6 @@ def build_ui(root, user_config):
     # Build menus
     _build_menus(menubar, root, state)
 
-    # Event handlers
     def on_output_folder_change(*args):
         is_custom = state["output_folder_option"].get() == "Custom"
         state["custom_output_entry"].config(state="normal" if is_custom else "disabled")
@@ -272,6 +245,7 @@ def build_ui(root, user_config):
 
     return state
 
+
 def _build_input_card(parent, state) -> None:
     """Build the input selection card with drag-and-drop support."""
     input_card = ttk.Frame(parent, style="Card.TFrame", padding=16)
@@ -283,12 +257,10 @@ def _build_input_card(parent, state) -> None:
     header_frame = ttk.Frame(input_card, style="Section.TFrame")
     header_frame.grid(row=0, column=0, sticky="ew", pady=(0, 12))
     header_frame.columnconfigure(0, weight=1)
-    
     _create_section_header(header_frame, "Input Selection").grid(row=0, column=0, sticky="w")
-    _create_info_label(
-        header_frame,
-        "Drop files or folders here, or use the browse button to select images."
-    ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+    _create_info_label(header_frame, "Drop files or folders here, or use the browse button to select images.").grid(
+        row=1, column=0, sticky="w", pady=(4, 0)
+    )
 
     # Input path selection
     input_frame = ttk.Frame(input_card, style="Section.TFrame")
@@ -298,97 +270,30 @@ def _build_input_card(parent, state) -> None:
     entry = ttk.Entry(input_frame, textvariable=state["input_path"], width=50)
     entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
     state["input_entry"] = entry
-    
-    ttk.Button(
-        input_frame, 
-        text="Browse...", 
-        command=lambda: _select_input(state),
-        style="TButton"
-    ).grid(row=0, column=1)
+    ttk.Button(input_frame, text="Browse...", command=lambda: _select_input(state), style="TButton").grid(
+        row=0, column=1
+    )
 
     # Options row
     options_frame = ttk.Frame(input_card, style="Section.TFrame")
     options_frame.grid(row=2, column=0, sticky="ew", pady=(0, 12))
     options_frame.columnconfigure(1, weight=1)
 
-    ttk.Checkbutton(
-        options_frame,
-        text="Include subdirectories",
-        variable=state["recursive_search"]
-    ).grid(row=0, column=0, sticky="w")
+    ttk.Checkbutton(options_frame, text="Include subdirectories", variable=state["recursive_search"]).grid(
+        row=0, column=0, sticky="w"
+    )
 
-    ttk.Label(
-        options_frame,
-        textvariable=state["image_count"],
-        style="Small.TLabel"
-    ).grid(row=0, column=1, sticky="e")
+    ttk.Label(options_frame, textvariable=state["image_count"], style="Small.TLabel").grid(row=0, column=1, sticky="e")
 
     # Summary bar with scrolling support
     summary_frame = ttk.Frame(input_card, style="Section.TFrame")
     summary_frame.grid(row=3, column=0, sticky="ew")
-    summary_frame.columnconfigure((0, 1, 2), weight=1)
+    summary_frame.columnconfigure(0, weight=1)
 
-    # Create a container frame that can scroll as a unit
-    summary_container = ttk.Frame(summary_frame, style="TFrame")
-    summary_container.grid(row=0, column=0, sticky="ew")
-    summary_container.columnconfigure((0, 1, 2), weight=1)
-
-    for column, key in enumerate(("summary_model", "summary_prompt", "summary_output")):
-        existing = state.get(key)
-        if existing is not None:
-            try:
-                existing.destroy()
-            except tk.TclError:
-                pass
-        widget = AnimatedLabel(summary_container, style="Small.TLabel")
-        widget.grid(row=0, column=column, sticky="w", padx=(0, 12))
-        state[key] = widget
-
-    # Note: AnimatedLabel widgets use standard ttk.Label styling
-
-    # Make the entire summary scroll as one unit if text is too long
-    def _update_summary_scrolling():
-        total_width = sum(state[key].winfo_reqwidth() for key in ("summary_model", "summary_prompt", "summary_output") if key in state)
-        container_width = summary_container.winfo_width()
-
-        if total_width > container_width and container_width > 0:
-            # Enable scrolling animation for overflow text
-            for key in ("summary_model", "summary_prompt", "summary_output"):
-                if key in state:
-                    state[key].check_width()
-        else:
-            # Disable scrolling if everything fits
-            for key in ("summary_model", "summary_prompt", "summary_output"):
-                if key in state:
-                    state[key].running = False
-                    state[key].config(text=state[key].full_text)
-
-    summary_container.bind("<Configure>", lambda e: _update_summary_scrolling())
-
-    # Store the function reference for use in update_summary
-    state["_update_summary_scrolling"] = _update_summary_scrolling
-
-    # Store reference to summary container for scrolling
-    state["summary_container"] = summary_container
-
-    # Now update summary after container is properly initialized
-    update_summary(state)
-
-    # Update scrolling after initial summary setup
-    def _initial_scroll_update():
-        total_width = sum(state[key].winfo_reqwidth() for key in ("summary_model", "summary_prompt", "summary_output") if key in state)
-        container_width = summary_container.winfo_width()
-        if total_width > container_width and container_width > 0:
-            for key in ("summary_model", "summary_prompt", "summary_output"):
-                if key in state:
-                    state[key].check_width()
-
-    summary_container.after(100, _initial_scroll_update)  # Delay to allow widgets to render
-
-    summary_prompt_var = tk.StringVar(value="")
-    summary_output_var = tk.StringVar(value="")
-    state["summary_prompt_var"] = summary_prompt_var
-    state["summary_output_var"] = summary_output_var
+    # Create a single animated label for the summary "train"
+    summary_label = AnimatedLabel(summary_frame, style="Small.TLabel")
+    summary_label.grid(row=0, column=0, sticky="ew")
+    state["summary_label"] = summary_label
 
 
 def _build_main_notebook(parent, state) -> ttk.Notebook:

@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
+
 class BaseProvider(ABC):
     """
     Abstract base class for an AI provider.

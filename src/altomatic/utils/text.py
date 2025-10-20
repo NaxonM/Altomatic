@@ -3,6 +3,7 @@
 import re
 import json
 
+
 def extract_json_from_string(text: str) -> dict | None:
     """
     Finds and parses the first valid JSON object from a string.
@@ -20,10 +21,10 @@ def extract_json_from_string(text: str) -> dict | None:
         json_str = match.group(1)
     else:
         # Fallback for plain JSON objects that might have surrounding text
-        start_brace = text.find('{')
-        end_brace = text.rfind('}')
+        start_brace = text.find("{")
+        end_brace = text.rfind("}")
         if start_brace != -1 and end_brace != -1 and start_brace < end_brace:
-            json_str = text[start_brace:end_brace+1]
+            json_str = text[start_brace : end_brace + 1]
         else:
             return None
 

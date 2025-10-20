@@ -2,14 +2,23 @@
 
 from typing import Any, Dict
 import json
+
 try:
-    from openai import OpenAI, RateLimitError, APIStatusError, APIConnectionError, AuthenticationError as OpenAIAuthError, BadRequestError
+    from openai import (
+        OpenAI,
+        RateLimitError,
+        APIStatusError,
+        APIConnectionError,
+        AuthenticationError as OpenAIAuthError,
+        BadRequestError,
+    )
 except ModuleNotFoundError:
     OpenAI = None
 
 from .base import BaseProvider
 from .exceptions import APIError, AuthenticationError, NetworkError
 from ...ui import append_monitor_colored, update_token_label
+
 
 class OpenAIProvider(BaseProvider):
     """OpenAI provider."""
@@ -63,7 +72,10 @@ class OpenAIProvider(BaseProvider):
         except RateLimitError as e:
             raise APIError("OpenAI rate limit exceeded. Please wait and try again.") from e
         except BadRequestError as e:
-            raise APIError(f"OpenAI received a bad request. This may be due to an issue with the prompt or image. Details: {e.message}") from e
+            raise APIError(
+                f"OpenAI received a bad request. This may be due to an issue with the prompt or image. "
+                f"Details: {e.message}"
+            ) from e
         except APIStatusError as e:
             raise APIError(f"OpenAI API error ({e.status_code}): {e.message}") from e
         except APIConnectionError as e:
