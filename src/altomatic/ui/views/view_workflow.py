@@ -20,16 +20,30 @@ class ScrollableFrame(ttk.Frame):
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
         
-        # Create canvas and scrollbar
-        self.canvas = tk.Canvas(self, highlightthickness=0)
+        # Create canvas and scrollbar with proper background
+        style = ttk.Style()
+        bg_color = style.lookup('TFrame', 'background')
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=bg_color)
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
 
-        # Configure canvas scrolling
+        # Configure canvas scrolling with after_idle to prevent race conditions
         self.scrollable_frame.bind(
             "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            lambda e: self.canvas.after_idle(
+                lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            )
         )
+
+        # Create window in canvas
+        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
+        # Configure canvas to resize with window
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+
 
         # Create window in canvas
         self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
@@ -200,7 +214,8 @@ def build_tab_workflow(frame, state) -> None:
     processing_pane = CollapsiblePane(
         container, 
         text="🤖 Processing Options", 
-        accordion_group=accordion_group
+        accordion_group=accordion_group,
+        scroll_canvas=scrollable.canvas
     )
     processing_pane.grid(row=1, column=0, sticky="ew", pady=(0, 8))
     accordion_group.append(processing_pane)
@@ -276,7 +291,8 @@ def build_tab_workflow(frame, state) -> None:
     ocr_pane = CollapsiblePane(
         container, 
         text="📸 OCR Settings", 
-        accordion_group=accordion_group
+        accordion_group=accordion_group,
+        scroll_canvas=scrollable.canvas
     )
     ocr_pane.grid(row=2, column=0, sticky="ew", pady=(0, 8))
     accordion_group.append(ocr_pane)
@@ -345,7 +361,8 @@ def build_tab_workflow(frame, state) -> None:
     output_pane = CollapsiblePane(
         container, 
         text="💾 Output Settings", 
-        accordion_group=accordion_group
+        accordion_group=accordion_group,
+        scroll_canvas=scrollable.canvas
     )
     output_pane.grid(row=3, column=0, sticky="ew", pady=(0, 8))
     accordion_group.append(output_pane)

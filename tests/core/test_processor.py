@@ -1,133 +1,127 @@
-"""Unit tests for the processor module."""
-
-import os
-import queue
-import shutil
-import sys
-import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
+import sys
 
-# Mock UI modules before they are imported by the application code
-sys.modules["tkinter"] = MagicMock()
-sys.modules["tkinter.messagebox"] = MagicMock()
-sys.modules["tkinterdnd2"] = MagicMock()
-sys.modules["pyperclip"] = MagicMock()
-
-
+# Mock UI modules before any application code is imported to prevent fatal errors
+# in the headless environment.
+MOCK_MODULES = [
+    "tkinter",
+    "tkinter.ttk",
+    "tkinter.font",
+    "tkinter.messagebox",
+    "pyperclip",
+    "tkinterdnd2",
+    "ttkthemes",
+]
+for mod_name in MOCK_MODULES:
+    sys.modules[mod_name] = MagicMock()
 from src.altomatic.core.processor import process_images
-from PIL import UnidentifiedImageError
 
 
-class TestProcessor(unittest.TestCase):
-    """Test cases for the image processor."""
+class TestImageProcessor(unittest.TestCase):
 
     def setUp(self):
-        """Set up a temporary directory for testing."""
-        self.test_dir = tempfile.mkdtemp()
-        self.output_dir = os.path.join(self.test_dir, "output")
-        os.makedirs(self.output_dir)
-
-    def tearDown(self):
-        """Clean up the temporary directory."""
-        shutil.rmtree(self.test_dir)
-
-    def create_dummy_image(self, filename="test_image.png"):
-        """Creates a dummy image file."""
-        path = os.path.join(self.test_dir, filename)
-        with open(path, "w") as f:
-            f.write("dummy image data")
-        return path
-
-    def get_default_state(self):
-        """Returns a default state dictionary for testing."""
-        state = {
-            "ui_queue": queue.Queue(),
-            "llm_provider": MagicMock(get=MagicMock(return_value="openai")),
-            "openai_api_key": MagicMock(get=MagicMock(return_value="test_api_key")),
-            "input_path": MagicMock(get=MagicMock(return_value=self.test_dir)),
-            "output_folder_option": MagicMock(get=MagicMock(return_value="Custom")),
-            "custom_output_path": MagicMock(get=MagicMock(return_value=self.output_dir)),
-            "input_type": MagicMock(get=MagicMock(return_value="Directory")),
-            "include_subdirectories": MagicMock(get=MagicMock(return_value=False)),
-            "total_tokens": MagicMock(get=MagicMock(return_value=0), set=MagicMock()),
-            "show_results_table": MagicMock(get=MagicMock(return_value=False)),
+        """Set up a fresh state for each test."""
+        self.state = {
+            "llm_provider": MagicMock(get=lambda: "openai"),
+            "openai_api_key": MagicMock(get=lambda: "fake_api_key"),
+            "openrouter_api_key": MagicMock(get=lambda: ""),
+            "input_path": MagicMock(get=lambda: "/fake/input"),
+            "input_type": MagicMock(get=lambda: "Folder"),
+            "include_subdirectories": MagicMock(get=lambda: False),
+            "output_folder_option": MagicMock(get=lambda: "Same as input"),
+            "custom_output_path": MagicMock(get=lambda: ""),
+            "show_results_table": MagicMock(get=lambda: False),
+            "total_tokens": MagicMock(get=lambda: 0, set=MagicMock()),
+            "ui_queue": MagicMock(),
         }
-        state.setdefault("global_images_count", MagicMock(get=MagicMock(return_value=0), set=MagicMock()))
-        return state
+        # Simplify the get method for MagicMock
+        for key, mock_obj in self.state.items():
+            if hasattr(mock_obj, "get"):
+                mock_obj.get.return_value = mock_obj.get()
 
+    @patch("src.altomatic.core.processor.os.path.exists")
+    @patch("src.altomatic.core.processor.get_all_images")
+    def test_no_images_found(self, mock_get_all_images, mock_exists):
+        """Test that an error is queued if no images are found."""
+        mock_exists.return_value = True
+        mock_get_all_images.return_value = []
+        process_images(self.state)
+        self.state["ui_queue"].put.assert_called_with(
+            {"type": "error", "title": "No Images", "value": "No valid image files found."}
+        )
+
+    @patch("src.altomatic.core.processor.os.path.exists")
+    @patch("src.altomatic.core.processor.get_all_images")
     @patch("src.altomatic.core.processor.describe_image")
-    @patch("src.altomatic.utils.images.get_all_images")
-    def test_process_images_success(self, mock_get_all_images, mock_describe_image):
-        """Test successful image processing."""
-        image_path = self.create_dummy_image()
-        mock_get_all_images.return_value = [image_path]
-        mock_describe_image.return_value = {"name": "test", "alt": "alt text"}
-        state = self.get_default_state()
+    @patch("src.altomatic.core.processor.shutil.copy")
+    @patch("src.altomatic.core.processor.os.makedirs")
+    @patch("builtins.open", new_callable=unittest.mock.mock_open)
+    def test_successful_processing(
+        self,
+        mock_open,
+        mock_makedirs,
+        mock_copy,
+        mock_describe_image,
+        mock_get_all_images,
+        mock_exists,
+    ):
+        """Test the full processing pipeline for a successful run."""
+        mock_exists.return_value = True
+        mock_get_all_images.return_value = ["/fake/input/image1.jpg"]
+        mock_describe_image.return_value = {
+            "name": "A sunny day",
+            "alt": "A picture of a sunny day.",
+        }
+        process_images(self.state)
+        mock_describe_image.assert_called_once()
+        mock_copy.assert_called_once()
+        self.assertIn(
+            unittest.mock.call().write("[Original: image1.jpg]\n"), mock_open.mock_calls
+        )
 
-        process_images(state)
+    @patch("src.altomatic.core.processor.os.path.exists")
+    def test_input_path_does_not_exist(self, mock_exists):
+        """Test error handling when the input path is invalid."""
+        mock_exists.return_value = False
+        process_images(self.state)
+        self.state["ui_queue"].put.assert_called_with(
+            {"type": "error", "title": "Invalid Input", "value": "Input path does not exist."}
+        )
 
-        # Check that the output file was created
-        session_dirs = os.listdir(self.output_dir)
-        self.assertEqual(len(session_dirs), 1)
-        renamed_images_dir = os.path.join(self.output_dir, session_dirs[0], "renamed_images")
-        output_files = os.listdir(renamed_images_dir)
-        self.assertEqual(len(output_files), 1)
-        self.assertTrue(output_files[0].startswith("test"))
+    @patch("src.altomatic.core.processor.os.path.exists")
+    @patch("src.altomatic.core.processor.get_all_images")
+    @patch("src.altomatic.core.processor.describe_image")
+    def test_api_error_handling(
+        self, mock_describe_image, mock_get_all_images, mock_exists
+    ):
+        """Test that API errors are caught and logged."""
+        from src.altomatic.services.providers.exceptions import APIError
 
-    def test_process_images_no_api_key(self):
-        """Test processing with a missing API key."""
-        state = self.get_default_state()
-        state["openai_api_key"].get.return_value = ""
+        mock_exists.return_value = True
+        mock_get_all_images.return_value = ["/fake/input/image1.jpg"]
+        mock_describe_image.side_effect = APIError("Model not found")
+        with patch("builtins.open", unittest.mock.mock_open()):
+            process_images(self.state)
+        self.state["ui_queue"].put.assert_any_call(
+            {
+                "type": "log",
+                "value": "FAIL: /fake/input/image1.jpg :: Model not found",
+                "level": "error",
+            }
+        )
 
-        process_images(state)
-
-        # Check for the error message in the queue
-        error_message = state["ui_queue"].get()
-        self.assertEqual(error_message["type"], "error")
-        self.assertEqual(error_message["title"], "Missing API Key")
-
-    def test_process_images_invalid_input_path(self):
-        """Test processing with an invalid input path."""
-        state = self.get_default_state()
-        state["input_path"].get.return_value = "non_existent_path"
-
-        process_images(state)
-
-        # Check for the error message in the queue
-        error_message = state["ui_queue"].get()
-        self.assertEqual(error_message["type"], "error")
-        self.assertEqual(error_message["title"], "Invalid Input")
-
-    @patch("src.altomatic.utils.images.get_all_images", return_value=[])
-    def test_process_images_no_images_found(self, mock_get_all_images):
-        """Test processing when no images are found."""
-        state = self.get_default_state()
-        process_images(state)
-
-        # Check for the error message in the queue
-        error_message = state["ui_queue"].get()
-        self.assertEqual(error_message["type"], "error")
-        self.assertEqual(error_message["title"], "No Images")
-
-    @patch("src.altomatic.core.processor.describe_image", side_effect=UnidentifiedImageError)
-    @patch("src.altomatic.utils.images.get_all_images")
-    def test_process_images_unidentified_image_error(self, mock_get_all_images, mock_describe_image):
-        """Test that UnidentifiedImageError is handled gracefully."""
-        image_path = self.create_dummy_image()
-        mock_get_all_images.return_value = [image_path]
-        state = self.get_default_state()
-
-        process_images(state)
-
-        # Check that the log file was created with the correct error message
-        session_dirs = os.listdir(self.output_dir)
-        self.assertEqual(len(session_dirs), 1)
-        log_path = os.path.join(self.output_dir, session_dirs[0], "failed.log")
-        self.assertTrue(os.path.exists(log_path))
-        with open(log_path, "r") as f:
-            log_content = f.read()
-        self.assertIn("Unsupported or corrupted image format", log_content)
+    def test_missing_api_key(self):
+        """Test that the function exits if the API key is not set."""
+        self.state["openai_api_key"].get.return_value = " "
+        process_images(self.state)
+        self.state["ui_queue"].put.assert_called_with(
+            {
+                "type": "error",
+                "title": "Missing API Key",
+                "value": "Please enter your OpenAI API key in the Settings tab.",
+            }
+        )
 
 
 if __name__ == "__main__":

@@ -72,68 +72,127 @@ class AnimatedLabel(ttk.Label):
         self.after(200, self.animate)
 
 class CollapsiblePane(ttk.Frame):
-    """A collapsible pane widget with optional accordion behavior."""
-
-    def __init__(self, parent, text="", accordion_group=None, **kwargs):
+    """A collapsible pane widget with optional accordion behavior and auto-scroll."""
+    
+    def __init__(self, parent, text, accordion_group=None, scroll_canvas=None, **kwargs):
         super().__init__(parent, **kwargs)
-
         self.columnconfigure(0, weight=1)
-
-        self._is_collapsed = True
-        self._text = text
-        self._accordion_group = accordion_group  # List of related panes for accordion behavior
-
-        self._header_frame = ttk.Frame(self, style="Card.TFrame")
-        self._header_frame.grid(row=0, column=0, sticky="ew")
-
-        self._header_frame.columnconfigure(0, weight=1)
-        self._header_label = ttk.Label(
-            self._header_frame, text=self._text, style="Header.TLabel"
+        
+        self.scroll_canvas = scroll_canvas
+        self.is_collapsed = True
+        self.text = text
+        self.accordion_group = accordion_group
+        
+        # Header
+        self.header_frame = ttk.Frame(self, style="Card.TFrame")
+        self.header_frame.grid(row=0, column=0, sticky="ew")
+        self.header_frame.columnconfigure(0, weight=1)
+        
+        self.header_label = ttk.Label(self.header_frame, text=self.text, style="Header.TLabel")
+        self.header_label.grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        
+        self.toggle_button = ttk.Button(
+            self.header_frame, 
+            text="▶", 
+            command=self.toggle, 
+            width=4
         )
-        self._header_label.grid(row=0, column=0, sticky="w", padx=10, pady=5)
-
-        self._toggle_button = ttk.Button(
-            self._header_frame, text="▼", command=self._toggle, width=4
-        )
-        self._toggle_button.grid(row=0, column=1, sticky="e", padx=5)
-
+        self.toggle_button.grid(row=0, column=1, sticky="e", padx=5)
+        
+        # Content frame
         self.frame = ttk.Frame(self, style="Card.TFrame", padding=(16, 0, 16, 16))
         self.frame.rowconfigure(0, weight=1)
         self.frame.columnconfigure(0, weight=1)
-
-        self.bind("<Button-1>", self._toggle)
-        self._header_label.bind("<Button-1>", self._toggle)
-
-    def _toggle(self, event=None):
-        if self._is_collapsed:
+        
+        # Bind click events
+        self.bind("<Button-1>", self.toggle)
+        self.header_label.bind("<Button-1>", self.toggle)
+    
+    def toggle(self, event=None):
+        """Toggle the pane open/closed with auto-scroll support."""
+        if self.is_collapsed:
             # If accordion group is set, collapse all other panes first
-            if self._accordion_group:
-                for pane in self._accordion_group:
-                    if pane != self and not pane._is_collapsed:
-                        pane._collapse()
-
+            if self.accordion_group:
+                for pane in self.accordion_group:
+                    if pane != self and not pane.is_collapsed:
+                        pane.collapse()
+            
             # Expand this pane
             self.frame.grid(row=1, column=0, sticky="nsew")
-            self._toggle_button.configure(text="▲")
-            self._is_collapsed = False
+            self.toggle_button.configure(text="▼")
+            self.is_collapsed = False
+            
+            # Update scroll region and auto-scroll to make content visible
+            if self.scroll_canvas:
+                self._auto_scroll_to_visible()
         else:
-            self._collapse()
-
-    def _collapse(self):
-        """Collapse this pane."""
-        self.frame.grid_forget()
-        self._toggle_button.configure(text="▼")
-        self._is_collapsed = True
-
-    def expand(self):
-        """Expand this pane (collapsing others if in accordion group)."""
-        if self._is_collapsed:
-            self._toggle()
-
+            self.collapse()
+    
+    def _auto_scroll_to_visible(self):
+        """Automatically scroll the canvas to make the expanded pane fully visible."""
+        if not self.scroll_canvas:
+            return
+        
+        # Update the canvas to get accurate measurements
+        self.scroll_canvas.update_idletasks()
+        self.update_idletasks()
+        
+        # Update scroll region first
+        self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
+        
+        # Get the bounding box of this pane within the canvas
+        try:
+            # Get the position of this widget relative to the scrollable frame
+            pane_y = self.winfo_y()
+            pane_height = self.winfo_height()
+            pane_bottom = pane_y + pane_height
+            
+            # Get canvas viewport dimensions
+            canvas_height = self.scroll_canvas.winfo_height()
+            
+            # Get current scroll position
+            scroll_region = self.scroll_canvas.cget("scrollregion").split()
+            if len(scroll_region) == 4:
+                total_height = float(scroll_region[3])
+            else:
+                return
+            
+            # Get current view position (top and bottom fractions)
+            current_view = self.scroll_canvas.yview()
+            view_top = current_view[0] * total_height
+            view_bottom = current_view[1] * total_height
+            
+            # Calculate if we need to scroll
+            if pane_bottom > view_bottom:
+                # Pane bottom is below visible area - scroll down
+                target_position = (pane_bottom - canvas_height) / total_height
+                target_position = max(0.0, min(1.0, target_position))
+                self.scroll_canvas.yview_moveto(target_position)
+            elif pane_y < view_top:
+                # Pane top is above visible area - scroll up
+                target_position = pane_y / total_height
+                target_position = max(0.0, min(1.0, target_position))
+                self.scroll_canvas.yview_moveto(target_position)
+                
+        except Exception:
+            pass
+    
     def collapse(self):
         """Collapse this pane."""
-        if not self._is_collapsed:
-            self._collapse()
+        self.frame.grid_forget()
+        self.toggle_button.configure(text="▶")
+        self.is_collapsed = True
+        
+        # Update scroll region when collapsing
+        if self.scroll_canvas:
+            self.scroll_canvas.update_idletasks()
+            self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
+    
+    def expand(self):
+        """Expand this pane (collapsing others if in accordion group)."""
+        if self.is_collapsed:
+            self.toggle()
+
 
 def _scaled_geometry(widget: tk.Misc, base_width: int, base_height: int) -> str:
     """Calculate responsive window geometry based on screen size."""

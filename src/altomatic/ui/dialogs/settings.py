@@ -3,13 +3,9 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ...config import open_config_folder
 from ..themes import PALETTE
 from ..ui_toolkit import (
     _create_info_label,
-    _create_section_header,
-    _apply_proxy_preferences,
-    _refresh_detected_proxy,
     _save_settings,
     _reset_token_usage,
     _reset_global_stats,

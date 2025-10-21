@@ -18,7 +18,7 @@ from ..utils import (
     get_requests_proxies,
 )
 from .themes import apply_theme
-from ._shared import _create_section_header, _create_info_label
+from ._shared import _create_section_header
 from .dialogs.about import show_about
 from .dialogs.settings import open_settings_dialog
 from .ui_toolkit import (
@@ -180,9 +180,10 @@ def build_ui(root, user_config):
     _build_footer(content_frame, state)
 
     # Build tabs
-    tab_workflow = ttk.Frame(notebook, padding=(0, 16, 0, 0))
-    tab_configuration = ttk.Frame(notebook, padding=(0, 16, 0, 0))
-    tab_log = ttk.Frame(notebook, padding=(0, 16, 0, 0))
+    tab_workflow = ttk.Frame(notebook, padding=0)
+    tab_configuration = ttk.Frame(notebook, padding=0)
+    tab_log = ttk.Frame(notebook, padding=0)
+
 
     notebook.add(tab_workflow, text="Workflow")
     notebook.add(tab_configuration, text="Prompts & Models")

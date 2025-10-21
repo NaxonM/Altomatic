@@ -19,21 +19,93 @@ from ..ui_toolkit import (
 from ..dialogs.prompt_editor import open_prompt_editor
 
 
+class ScrollableFrame(ttk.Frame):
+    """A scrollable frame container for dynamic content."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+        
+        # Create canvas and scrollbar with proper background
+        style = ttk.Style()
+        bg_color = style.lookup('TFrame', 'background')
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=bg_color)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        # Configure canvas scrolling with after_idle to prevent race conditions
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.after_idle(
+                lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            )
+        )
+
+        # Create window in canvas
+        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
+        # Configure canvas to resize with window
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        # Layout
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.scrollbar.grid(row=0, column=1, sticky="ns")
+        
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        # Enable mousewheel scrolling
+        self.scrollable_frame.bind("<Enter>", self._bind_mousewheel)
+        self.scrollable_frame.bind("<Leave>", self._unbind_mousewheel)
+
+    def _on_canvas_configure(self, event):
+        """Adjust the scrollable frame width to match canvas width."""
+        canvas_width = event.width
+        self.canvas.itemconfig(self.canvas_frame, width=canvas_width)
+
+    def _bind_mousewheel(self, event):
+        """Bind mousewheel to canvas scrolling."""
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind_all("<Button-4>", self._on_mousewheel)
+        self.canvas.bind_all("<Button-5>", self._on_mousewheel)
+
+    def _unbind_mousewheel(self, event):
+        """Unbind mousewheel from canvas scrolling."""
+        self.canvas.unbind_all("<MouseWheel>")
+        self.canvas.unbind_all("<Button-4>")
+        self.canvas.unbind_all("<Button-5>")
+
+    def _on_mousewheel(self, event):
+        """Handle mousewheel scrolling."""
+        if event.num == 4 or event.delta > 0:
+            self.canvas.yview_scroll(-1, "units")
+        elif event.num == 5 or event.delta < 0:
+            self.canvas.yview_scroll(1, "units")
+
 def build_tab_configuration(frame, state) -> None:
     """Build the consolidated configuration tab."""
     frame.columnconfigure(0, weight=1)
+    frame.rowconfigure(0, weight=1)
+
+    # Create scrollable container
+    scrollable = ScrollableFrame(frame)
+    scrollable.grid(row=0, column=0, sticky="nsew")
+    
+    container = scrollable.scrollable_frame
+    container.columnconfigure(0, weight=1)
 
     # Create accordion group for all collapsible panes
     accordion_group = []
 
     # AI Provider & Model
-    pane1 = CollapsiblePane(frame, text="🤖 AI Provider & Model", accordion_group=accordion_group)
+    pane1 = CollapsiblePane(container, text="🤖 AI Provider & Model", accordion_group=accordion_group, scroll_canvas=scrollable.canvas)
     pane1.grid(row=0, column=0, sticky="ew", pady=(0, 16))
     accordion_group.append(pane1)
     _build_llm_provider_section(pane1.frame, state)
 
     # Prompt Management
-    pane2 = CollapsiblePane(frame, text="✍️ Prompt Management", accordion_group=accordion_group)
+    pane2 = CollapsiblePane(container, text="✍️ Prompt Management", accordion_group=accordion_group, scroll_canvas=scrollable.canvas)
     pane2.grid(row=1, column=0, sticky="ew", pady=(0, 16))
     accordion_group.append(pane2)
     _build_prompt_management_section(pane2.frame, state)
