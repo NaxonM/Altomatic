@@ -107,7 +107,6 @@ def refresh_openrouter_models() -> dict[str, dict[str, float | str]]:
             for model_id, entry in refreshed.items()
         }
         PROVIDER_MODELS["openrouter"] = _OPENROUTER_MODELS_CACHE
-        DEFAULT_MODELS["openrouter"] = _select_default_model("openrouter")
         return _OPENROUTER_MODELS_CACHE
 
 
@@ -133,9 +132,7 @@ def get_provider_label(provider: str) -> str:
 
 
 def get_default_model(provider: str) -> str:
-    if provider == "openrouter":
-        return _select_default_model(provider)
-    return DEFAULT_MODELS.get(provider, DEFAULT_MODEL)
+    return default_models().get(provider, DEFAULT_MODEL)
 
 
 def get_provider_hint(provider: str, model_id: str) -> str | None:
@@ -177,11 +174,12 @@ PROVIDER_MODELS: dict[str, dict[str, dict[str, float | str]]] = {
     "openrouter": _build_openrouter_models(),
 }
 
-DEFAULT_MODELS: dict[str, str] = {
-    "openai": "gpt-5-nano",
-    "openrouter": _select_default_model("openrouter"),
-}
+def default_models() -> dict[str, str]:
+    return {
+        "openai": "gpt-5-nano",
+        "openrouter": _select_default_model("openrouter"),
+    }
 
-DEFAULT_MODEL = DEFAULT_MODELS[DEFAULT_PROVIDER]
+DEFAULT_MODEL = default_models()[DEFAULT_PROVIDER]
 AVAILABLE_MODELS: dict[str, dict[str, float | str]] = PROVIDER_MODELS[DEFAULT_PROVIDER]
 AVAILABLE_PROVIDERS = tuple(PROVIDER_MODELS.keys())

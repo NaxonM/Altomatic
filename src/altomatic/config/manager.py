@@ -9,7 +9,7 @@ from typing import Any
 
 from ..models import (
     DEFAULT_MODEL,
-    DEFAULT_MODELS,
+    default_models,
     DEFAULT_PROVIDER,
     get_default_model,
 )
@@ -36,7 +36,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tesseract_path": "",
     "ocr_language": "eng",
     "ui_theme": "Arctic Light",
-    "openai_model": DEFAULT_MODELS["openai"],
+    "openai_model": default_models()["openai"],
     "openrouter_model": get_default_model("openrouter"),
     "prompt_key": "default",
     "context_text": "",
@@ -75,7 +75,7 @@ def load_config() -> dict[str, Any]:
             config["openrouter_api_key"] = _deobfuscate_api_key(config["openrouter_api_key"])
 
         provider = config.get("llm_provider") or DEFAULT_PROVIDER
-        if provider not in DEFAULT_MODELS:
+        if provider not in default_models():
             provider = DEFAULT_PROVIDER
         config["llm_provider"] = provider
 
@@ -83,7 +83,7 @@ def load_config() -> dict[str, Any]:
             config.pop("openrouter_provider", None)
 
         if not config.get("openai_model"):
-            config["openai_model"] = DEFAULT_MODELS["openai"]
+            config["openai_model"] = default_models()["openai"]
         if not config.get("openrouter_model"):
             config["openrouter_model"] = get_default_model("openrouter")
 

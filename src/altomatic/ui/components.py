@@ -8,7 +8,7 @@ from tkinter import ttk
 
 from ..models import (
     AVAILABLE_PROVIDERS,
-    DEFAULT_MODELS,
+    default_models,
     DEFAULT_PROVIDER,
     get_default_model,
     get_models_for_provider,
@@ -100,12 +100,12 @@ def build_ui(root, user_config):
         provider = DEFAULT_PROVIDER
 
     provider_model_map = {
-        "openai": user_config.get("openai_model", DEFAULT_MODELS["openai"]),
+        "openai": user_config.get("openai_model", default_models()["openai"]),
         "openrouter": user_config.get("openrouter_model", get_default_model("openrouter")),
     }
 
     for key, fallback in (
-        ("openai", DEFAULT_MODELS["openai"]),
+        ("openai", default_models()["openai"]),
         ("openrouter", get_default_model("openrouter")),
     ):
         models_for_provider = get_models_for_provider(key)

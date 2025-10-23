@@ -14,7 +14,7 @@ from ..config import open_config_folder, save_config
 from ..models import (
     AVAILABLE_PROVIDERS,
     DEFAULT_MODEL,
-    DEFAULT_MODELS,
+    default_models,
     DEFAULT_PROVIDER,
     format_pricing,
     get_default_model,

@@ -60,7 +60,9 @@ def load_prompts() -> Dict[str, dict]:
     try:
         with PROMPTS_PATH.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not all(
+            isinstance(v, dict) and "label" in v and "template" in v for v in data.values()
+        ):
             raise ValueError("Invalid prompts structure")
         return data
     except (IOError, json.JSONDecodeError, ValueError):

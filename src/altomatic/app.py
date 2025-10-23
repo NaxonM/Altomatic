@@ -122,36 +122,38 @@ def run() -> None:
 
     def process_queue():
         try:
-            message = ui_queue.get_nowait()
-            msg_type = message.get("type")
-            value = message.get("value")
+            while not ui_queue.empty():
+                message = ui_queue.get_nowait()
+                msg_type = message.get("type")
+                value = message.get("value")
 
-            if msg_type == "status":
-                set_status(state, value)
-            elif msg_type == "progress":
-                progress_bar = state.get("progress_bar")
-                if progress_bar:
-                    progress_bar["value"] = value
-            elif msg_type == "progress_max":
-                progress_bar = state.get("progress_bar")
-                if progress_bar:
-                    progress_bar["maximum"] = value
-            elif msg_type == "log":
-                append_monitor_colored(state, value, message.get("level", "info"))
-            else:
-                process_button = state.get("process_button")
-                if process_button:
-                    process_button.config(state="normal")
-                if msg_type == "done":
-                    set_status(state, "✅ Done!")
-                    messagebox.showinfo("Done", value)
-                elif msg_type == "done_with_results":
-                    set_status(state, "✅ Done!")
-                    create_results_window(state, message.get("results"))
-                elif msg_type == "error":
-                    messagebox.showerror(message.get("title", "Error"), value)
-        except queue.Empty:
-            pass
+                if msg_type == "status":
+                    set_status(state, value)
+                elif msg_type == "progress":
+                    progress_bar = state.get("progress_bar")
+                    if progress_bar:
+                        progress_bar["value"] = value
+                elif msg_type == "progress_max":
+                    progress_bar = state.get("progress_bar")
+                    if progress_bar:
+                        progress_bar["maximum"] = value
+                elif msg_type == "log":
+                    append_monitor_colored(state, value, message.get("level", "info"))
+                else:
+                    process_button = state.get("process_button")
+                    if process_button:
+                        process_button.config(state="normal")
+                    if msg_type == "done":
+                        set_status(state, "✅ Done!")
+                        messagebox.showinfo("Done", value)
+                    elif msg_type == "done_with_results":
+                        set_status(state, "✅ Done!")
+                        create_results_window(state, message.get("results"))
+                    elif msg_type == "error":
+                        messagebox.showerror(message.get("title", "Error"), value)
+        except Exception as e:
+            # Catch any other exceptions to prevent the queue processing from stopping
+            append_monitor_colored(state, f"Error processing UI queue: {e}", "error")
         finally:
             root.after(100, process_queue)
 
