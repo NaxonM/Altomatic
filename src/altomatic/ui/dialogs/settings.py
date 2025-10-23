@@ -3,7 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ..themes import PALETTE
+from ..themes import PALETTE, apply_theme
 from ..ui_toolkit import (
     _create_info_label,
     _save_settings,
@@ -74,8 +74,17 @@ def _build_appearance_section(parent, state) -> None:
     theme_var = tk.StringVar(value=state["ui_theme"].get())
 
     def on_theme_change(theme_name):
-        theme_var.set(theme_name)
-        state["ui_theme"].set(theme_name)
+        try:
+            theme_var.set(theme_name)
+            state["ui_theme"].set(theme_name)
+            apply_theme(state["root"], theme_name)
+        except ImportError:
+            # Handle cases where apply_theme might not be available
+            # This can happen if the file structure is changed.
+            pass
+        except Exception as e:
+            # Catch other potential errors, e.g., if state["root"] is not a valid window
+            print(f"Error applying theme: {e}")
 
     theme_menu = ttk.OptionMenu(
         theme_frame,

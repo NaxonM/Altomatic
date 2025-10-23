@@ -3,7 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ...models import AVAILABLE_PROVIDERS, get_models_for_provider, get_provider_label, refresh_openrouter_models, get_default_model, format_pricing
+from ...models import AVAILABLE_PROVIDERS, AppState, get_models_for_provider, get_provider_label, refresh_openrouter_models, get_default_model, format_pricing
 from ..ui_toolkit import (
     CollapsiblePane,
     ScrollableFrame,
@@ -19,7 +19,7 @@ from ..ui_toolkit import (
 )
 from ..dialogs.prompt_editor import open_prompt_editor
 
-def build_tab_configuration(frame: ttk.Frame, state: dict[str, Any]) -> None:
+def build_tab_configuration(frame: ttk.Frame, state: AppState) -> None:
     """Build the consolidated configuration tab."""
     frame.columnconfigure(0, weight=1)
     frame.rowconfigure(0, weight=1)
@@ -31,23 +31,32 @@ def build_tab_configuration(frame: ttk.Frame, state: dict[str, Any]) -> None:
     container = scrollable.scrollable_frame
     container.columnconfigure(0, weight=1)
 
-    # Create accordion group for all collapsible panes
-    accordion_group = []
+    # Instantiate all panes first
+    provider_pane = CollapsiblePane(
+        container,
+        text="🤖 AI Provider & Model",
+        scroll_canvas=scrollable.canvas
+    )
+    prompt_pane = CollapsiblePane(
+        container,
+        text="✍️ Prompt Management",
+        scroll_canvas=scrollable.canvas
+    )
 
-    # AI Provider & Model
-    pane1 = CollapsiblePane(container, text="🤖 AI Provider & Model", accordion_group=accordion_group, scroll_canvas=scrollable.canvas)
-    pane1.grid(row=0, column=0, sticky="ew", pady=(0, 16))
-    accordion_group.append(pane1)
-    _build_llm_provider_section(pane1.frame, state)
+    # Create and assign the accordion group after all panes exist
+    accordion_group = [provider_pane, prompt_pane]
+    for pane in accordion_group:
+        pane.accordion_group = accordion_group
 
-    # Prompt Management
-    pane2 = CollapsiblePane(container, text="✍️ Prompt Management", accordion_group=accordion_group, scroll_canvas=scrollable.canvas)
-    pane2.grid(row=1, column=0, sticky="ew", pady=(0, 16))
-    accordion_group.append(pane2)
-    _build_prompt_management_section(pane2.frame, state)
+    # Layout the panes and build their content
+    provider_pane.grid(row=0, column=0, sticky="ew", pady=(0, 16))
+    _build_llm_provider_section(provider_pane.frame, state)
+
+    prompt_pane.grid(row=1, column=0, sticky="ew", pady=(0, 16))
+    _build_prompt_management_section(prompt_pane.frame, state)
 
 
-def _build_prompt_management_section(parent: ttk.Frame, state: dict[str, Any]) -> None:
+def _build_prompt_management_section(parent: ttk.Frame, state: AppState) -> None:
     """Build the prompt management section."""
     parent.columnconfigure(0, weight=1)
     prompt_card = ttk.Frame(parent, style="Card.TFrame", padding=16)
@@ -64,18 +73,17 @@ def _build_prompt_management_section(parent: ttk.Frame, state: dict[str, Any]) -
         row=0, column=0, sticky="w", padx=(0, 8)
     )
 
-    prompts = state.get("prompts", {})
+    prompts = state.prompts
     prompt_labels = {v.get("label", k): k for k, v in prompts.items()}
 
-    prompt_key_var = state.get("prompt_key")
-    current_key = prompt_key_var.get() if prompt_key_var else "default"
+    prompt_key_var = state.prompt_key
+    current_key = prompt_key_var.get()
     current_label = prompts.get(current_key, {}).get("label", current_key)
     prompt_label_var = tk.StringVar(value=current_label)
 
     def on_prompt_select(label):
         key = prompt_labels.get(label, "default")
-        if prompt_key_var:
-            prompt_key_var.set(key)
+        prompt_key_var.set(key)
         prompt_label_var.set(label)
 
     prompt_menu = ttk.OptionMenu(
@@ -86,8 +94,8 @@ def _build_prompt_management_section(parent: ttk.Frame, state: dict[str, Any]) -
         command=on_prompt_select,
     )
     prompt_menu.grid(row=0, column=1, sticky="w")
-    state["prompt_option_widget"] = prompt_menu
-    state["prompt_option_menu"] = prompt_menu["menu"]
+    state.prompt_option_widget = prompt_menu
+    state.prompt_option_menu = prompt_menu["menu"]
 
     ttk.Button(
         selection_frame,
@@ -115,7 +123,7 @@ def _build_prompt_management_section(parent: ttk.Frame, state: dict[str, Any]) -
     preview_scrollbar = ttk.Scrollbar(preview_frame, orient="vertical", command=prompt_preview.yview)
     preview_scrollbar.grid(row=0, column=1, sticky="ns")
     prompt_preview.configure(yscrollcommand=preview_scrollbar.set)
-    state["prompt_preview"] = prompt_preview
+    state.prompt_preview = prompt_preview
 
     _create_info_label(
         prompt_card,
@@ -125,7 +133,7 @@ def _build_prompt_management_section(parent: ttk.Frame, state: dict[str, Any]) -
     refresh_prompt_choices(state)
 
 
-def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> None:
+def _build_llm_provider_section(parent: ttk.Frame, state: AppState) -> None:
     """Build the redesigned LLM provider section with original show/hide behavior."""
     parent.columnconfigure(0, weight=1)
 
@@ -144,15 +152,14 @@ def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> Non
     )
 
     provider_labels = {get_provider_label(pid): pid for pid in AVAILABLE_PROVIDERS}
-    llm_provider_var = state.get("llm_provider")
-    current_provider = llm_provider_var.get() if llm_provider_var else "default"
+    llm_provider_var = state.llm_provider
+    current_provider = llm_provider_var.get()
     provider_label_var = tk.StringVar(value=get_provider_label(current_provider))
-    state["provider_label_var"] = provider_label_var
+    state.provider_label_var = provider_label_var
 
     def on_provider_select(label):
         provider_key = provider_labels.get(label, "default")
-        if llm_provider_var:
-            llm_provider_var.set(provider_key)
+        llm_provider_var.set(provider_key)
 
     provider_menu = ttk.OptionMenu(
         provider_select_frame,
@@ -162,7 +169,7 @@ def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> Non
         command=on_provider_select,
     )
     provider_menu.grid(row=0, column=1, sticky="w")
-    state["provider_option_menu"] = provider_menu["menu"]
+    state.provider_option_menu = provider_menu["menu"]
 
     # Provider status
     provider_status_var = tk.StringVar(value="● Ready")
@@ -172,8 +179,8 @@ def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> Non
         style="Small.TLabel"
     )
     provider_status_label.grid(row=0, column=2, sticky="e", padx=(16, 0))
-    state["provider_status_label"] = provider_status_label
-    state["provider_status_var"] = provider_status_var
+    state.provider_status_label = provider_status_label
+    state.provider_status_var = provider_status_var
 
     # --- Model Selection ---
     model_select_frame = ttk.Frame(main_container, style="Section.TFrame")
@@ -185,12 +192,12 @@ def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> Non
     )
 
     model_label_var = tk.StringVar()
-    state["model_label_var"] = model_label_var
+    state.model_label_var = model_label_var
 
     model_menu = ttk.OptionMenu(model_select_frame, model_label_var, "")
     model_menu.grid(row=0, column=1, sticky="w")
-    state["model_option_widget"] = model_menu
-    state["model_option_menu"] = model_menu["menu"]
+    state.model_option_widget = model_menu
+    state.model_option_menu = model_menu["menu"]
 
     def _refresh_openrouter_models_ui() -> None:
         try:
@@ -202,25 +209,25 @@ def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> Non
                 set_status(state, "No OpenRouter models available")
                 return
 
-            current = state["openrouter_model"].get()
+            current = state.openrouter_model.get()
             if current not in models:
                 fallback = get_default_model("openrouter")
-                state["openrouter_model"].set(fallback)
-                if state["llm_provider"].get() == "openrouter":
-                    state["llm_model"].set(fallback)
+                state.openrouter_model.set(fallback)
+                if state.llm_provider.get() == "openrouter":
+                    state.llm_model.set(fallback)
 
-            state["provider_model_map"]["openrouter"] = state["openrouter_model"].get()
+            state.provider_model_map["openrouter"] = state.openrouter_model.get()
             # Refresh model choices in the dropdown
-            if "model_option_menu" in state:
-                menu = state["model_option_menu"]
+            if state.model_option_menu:
+                menu = state.model_option_menu
                 menu.delete(0, "end")
                 for model_id, info in models.items():
                     label = info.get("label", model_id)
-                    menu.add_command(label=label, command=lambda value=model_id: state["llm_model"].set(value))
+                    menu.add_command(label=label, command=lambda value=model_id: state.llm_model.set(value))
 
-                current_model = state["llm_model"].get()
+                current_model = state.llm_model.get()
                 if current_model in models:
-                    state["model_label_var"].set(models[current_model].get("label", current_model))
+                    state.model_label_var.set(models[current_model].get("label", current_model))
 
             update_model_pricing(state)
             update_summary(state)
@@ -240,21 +247,21 @@ def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> Non
         style="Secondary.TButton"
     )
     refresh_button.grid(row=0, column=2, sticky="e", padx=(16, 0))
-    state["refresh_openrouter_button"] = refresh_button
+    state.refresh_openrouter_button = refresh_button
 
     # Model information display
     model_info_frame = ttk.Frame(main_container, style="Section.TFrame")
     model_info_frame.grid(row=2, column=0, sticky="ew", pady=(4, 12))
     model_info_frame.columnconfigure(0, weight=1)
 
-    state["lbl_model_pricing"] = ttk.Label(
+    state.lbl_model_pricing = ttk.Label(
         model_info_frame,
         text="Select a model to view pricing and capabilities",
         justify="left",
         style="Small.TLabel",
         wraplength=600
     )
-    state["lbl_model_pricing"].grid(row=0, column=0, sticky="w")
+    state.lbl_model_pricing.grid(row=0, column=0, sticky="w")
 
     capabilities_label = ttk.Label(
         model_info_frame,
@@ -262,7 +269,7 @@ def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> Non
         style="Small.TLabel"
     )
     capabilities_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
-    state["model_capabilities_label"] = capabilities_label
+    state.model_capabilities_label = capabilities_label
 
     # --- API Keys ---
     # OpenAI section (show/hide based on provider)
@@ -270,20 +277,20 @@ def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> Non
     openai_frame.grid(row=3, column=0, sticky="ew", pady=(0, 4))
     openai_frame.columnconfigure(1, weight=1)
     _build_compact_openai_config(openai_frame, state)
-    state["openai_section"] = openai_frame
+    state.openai_section = openai_frame
 
     # OpenRouter section (show/hide based on provider)
     openrouter_frame = ttk.Frame(main_container, style="Section.TFrame")
     openrouter_frame.grid(row=4, column=0, sticky="ew", pady=(0, 4))
     openrouter_frame.columnconfigure(1, weight=1)
     _build_compact_openrouter_config(openrouter_frame, state)
-    state["openrouter_section"] = openrouter_frame
+    state.openrouter_section = openrouter_frame
 
     # Initialize the UI
     initialize_provider_ui(state)
 
 
-def _build_compact_openai_config(parent: ttk.Frame, state: dict[str, Any]) -> None:
+def _build_compact_openai_config(parent: ttk.Frame, state: AppState) -> None:
     """Build compact OpenAI configuration section."""
     parent.columnconfigure(1, weight=1)
 
@@ -305,9 +312,9 @@ def _build_compact_openai_config(parent: ttk.Frame, state: dict[str, Any]) -> No
         row=1, column=0, sticky="w", padx=(0, 8)
     )
 
-    api_key_entry = ttk.Entry(parent, textvariable=state["openai_api_key"], show="*", width=35)
+    api_key_entry = ttk.Entry(parent, textvariable=state.openai_api_key, show="*", width=35)
     api_key_entry.grid(row=1, column=1, sticky="ew", padx=(0, 8))
-    state["openai_api_entry"] = api_key_entry
+    state.openai_api_entry = api_key_entry
 
     show_key_var = tk.BooleanVar()
 
@@ -337,7 +344,7 @@ def _build_compact_openai_config(parent: ttk.Frame, state: dict[str, Any]) -> No
                 content = content.strip()
                 if content:
                     is_valid, message = validate_api_key("openai", content)
-                    state["openai_api_key"].set(content)
+                    state.openai_api_key.set(content)
                     if is_valid:
                         set_status(state, f"✓ OpenAI API key pasted and validated")
                     else:
@@ -366,11 +373,11 @@ def _build_compact_openai_config(parent: ttk.Frame, state: dict[str, Any]) -> No
         style="Small.TLabel"
     )
     openai_status_label.grid(row=0, column=1, sticky="e")
-    state["openai_status_label"] = openai_status_label
-    state["openai_status_var"] = openai_status_var
+    state.openai_status_label = openai_status_label
+    state.openai_status_var = openai_status_var
 
 
-def _build_compact_openrouter_config(parent: ttk.Frame, state: dict[str, Any]) -> None:
+def _build_compact_openrouter_config(parent: ttk.Frame, state: AppState) -> None:
     """Build compact OpenRouter configuration section."""
     parent.columnconfigure(1, weight=1)
 
@@ -392,9 +399,9 @@ def _build_compact_openrouter_config(parent: ttk.Frame, state: dict[str, Any]) -
         row=1, column=0, sticky="w", padx=(0, 8)
     )
 
-    api_key_entry = ttk.Entry(parent, textvariable=state["openrouter_api_key"], show="*", width=35)
+    api_key_entry = ttk.Entry(parent, textvariable=state.openrouter_api_key, show="*", width=35)
     api_key_entry.grid(row=1, column=1, sticky="ew", padx=(0, 8))
-    state["openrouter_api_entry"] = api_key_entry
+    state.openrouter_api_entry = api_key_entry
 
     show_key_var = tk.BooleanVar()
 
@@ -424,7 +431,7 @@ def _build_compact_openrouter_config(parent: ttk.Frame, state: dict[str, Any]) -
                 content = content.strip()
                 if content:
                     is_valid, message = validate_api_key("openrouter", content)
-                    state["openrouter_api_key"].set(content)
+                    state.openrouter_api_key.set(content)
                     if is_valid:
                         set_status(state, f"✓ OpenRouter API key pasted and validated")
                     else:
@@ -453,7 +460,7 @@ def _build_compact_openrouter_config(parent: ttk.Frame, state: dict[str, Any]) -
         style="Small.TLabel"
     )
     openrouter_status_label.grid(row=0, column=1, sticky="e")
-    state["openrouter_status_label"] = openrouter_status_label
+    state.openrouter_status_label = openrouter_status_label
 
     # Compact features display
     features_frame = ttk.Frame(parent, style="Section.TFrame")

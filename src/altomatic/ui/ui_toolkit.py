@@ -13,6 +13,7 @@ except ModuleNotFoundError:
 from ..config import open_config_folder, save_config
 from ..models import (
     AVAILABLE_PROVIDERS,
+    AppState,
     DEFAULT_MODEL,
     default_models,
     DEFAULT_PROVIDER,
@@ -35,60 +36,58 @@ from ..utils import (
 from .themes import PALETTE, apply_theme, apply_theme_to_window
 
 class AnimatedLabel(ttk.Label):
-    """Label with animated scrolling for overflow text."""
+    """A label with animated scrolling for overflow text."""
 
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
         self.full_text = ""
-        self.running = False
         self._after_id = None
-        self.bind("<Configure>", self.check_width)
+        self.bind("<Configure>", self._check_width)
         self.bind("<Destroy>", self._on_destroy)
 
-    def set_text(self, text):
+    def set_text(self, text: str):
+        """Set the label's text and start or stop animation as needed."""
         self.full_text = text
-        if self.running:
-            self.running = False
-            if self._after_id:
-                self.after_cancel(self._after_id)
-                self._after_id = None
-        self.check_width()
+        self._stop_animation()
+        self.config(text=self.full_text)
+        self.after_idle(self._check_width)
 
-    def check_width(self, event=None):
-        if not self.winfo_exists() or not self.full_text:
+    def _check_width(self, event=None):
+        """Check if the text is overflowing and manage animation."""
+        if not self.winfo_exists():
             return
 
-        self.config(text=self.full_text)
         self.update_idletasks()
-
         is_overflowing = self.winfo_width() < self.winfo_reqwidth()
 
-        if is_overflowing and not self.running:
-            self.running = True
-            self.animate()
-        elif not is_overflowing and self.running:
-            self.running = False
-            if self._after_id:
-                self.after_cancel(self._after_id)
-                self._after_id = None
+        if is_overflowing and self._after_id is None:
+            self._start_animation()
+        elif not is_overflowing and self._after_id is not None:
+            self._stop_animation()
             self.config(text=self.full_text)
 
-    def animate(self):
-        if not self.running:
-            self.config(text=self.full_text)
-            return
+    def _start_animation(self):
+        """Start the scrolling animation."""
+        self.config(text=self.full_text)
+        self._animate()
 
+    def _animate(self):
+        """Perform one step of the animation."""
         text = self.cget("text")
         if text:
             text = text[1:] + text[0]
             self.config(text=text)
+        self._after_id = self.after(200, self._animate)
 
-        self._after_id = self.after(200, self.animate)
-
-    def _on_destroy(self, event):
-        if self.running and self._after_id:
+    def _stop_animation(self):
+        """Stop the scrolling animation."""
+        if self._after_id:
             self.after_cancel(self._after_id)
-        self.running = False
+            self._after_id = None
+
+    def _on_destroy(self, event=None):
+        """Ensure animation is stopped when widget is destroyed."""
+        self._stop_animation()
 
 
 class ScrollableFrame(ttk.Frame):
@@ -104,14 +103,16 @@ class ScrollableFrame(ttk.Frame):
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
 
+        # Defer window creation until the first configure event
+        self.canvas_frame = None
+
         # Configure canvas scrolling with after_idle to prevent race conditions
         self.scrollable_frame.bind(
             "<Configure>",
             lambda e: self.canvas.after_idle(lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all"))),
         )
 
-        # Create window in canvas and configure canvas resizing
-        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        # Bind configure event to handle window creation and resizing
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
@@ -126,21 +127,30 @@ class ScrollableFrame(ttk.Frame):
         self.bind("<Leave>", self._unbind_mousewheel)
 
     def _on_canvas_configure(self, event):
-        """Adjust the scrollable frame width to match canvas width."""
+        """Create the canvas window on first configure and adjust width."""
         if self.winfo_exists():
+            # Create the window only once
+            if self.canvas_frame is None:
+                self.canvas_frame = self.canvas.create_window(
+                    (0, 0), window=self.scrollable_frame, anchor="nw"
+                )
+
+            # Always update the width to be responsive
             self.canvas.itemconfig(self.canvas_frame, width=event.width)
 
     def _bind_mousewheel(self, event):
         """Bind mousewheel to canvas scrolling."""
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-4>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-5>", self._on_mousewheel)
+        # Bind to the canvas itself, not globally.
+        # This prevents interference with other scrollable widgets.
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Button-4>", self._on_mousewheel)
+        self.canvas.bind("<Button-5>", self._on_mousewheel)
 
     def _unbind_mousewheel(self, event):
         """Unbind mousewheel from canvas scrolling."""
-        self.canvas.unbind_all("<MouseWheel>")
-        self.canvas.unbind_all("<Button-4>")
-        self.canvas.unbind_all("<Button-5>")
+        self.canvas.unbind("<MouseWheel>")
+        self.canvas.unbind("<Button-4>")
+        self.canvas.unbind("<Button-5>")
 
     def _on_mousewheel(self, event):
         """Handle mousewheel scrolling."""
@@ -253,8 +263,10 @@ class CollapsiblePane(ttk.Frame):
                 target_position = max(0.0, min(1.0, target_position))
                 self.scroll_canvas.yview_moveto(target_position)
                 
-        except Exception:
-            pass
+        except tk.TclError as e:
+            # This can happen if the widget is destroyed while scrolling.
+            # We can safely ignore it.
+            print(f"Ignoring TclError during auto-scroll: {e}")
     
     def collapse(self):
         """Collapse this pane."""
@@ -319,27 +331,25 @@ def _create_info_label(parent, text: str, wraplength=500) -> ttk.Label:
         justify="left"
     )
 
-def update_token_label(state) -> None:
+def update_token_label(state: AppState) -> None:
     """Update the token usage display."""
-    if "lbl_token_usage" in state:
-        state["lbl_token_usage"].config(text=f"Tokens: {state['total_tokens'].get():,}")
+    if state.lbl_token_usage:
+        state.lbl_token_usage.config(text=f"Tokens: {state.total_tokens.get():,}")
 
 
-def update_model_pricing(state) -> None:
+def update_model_pricing(state: AppState) -> None:
     """Update the model pricing information display."""
-    if "lbl_model_pricing" not in state:
+    if not state.lbl_model_pricing:
         return
 
-    provider_var = state.get("llm_provider")
-    provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
-    model_var = state.get("llm_model")
-    model_id = model_var.get() if model_var is not None else DEFAULT_MODEL
+    provider = state.llm_provider.get() or DEFAULT_PROVIDER
+    model_id = state.llm_model.get() or DEFAULT_MODEL
 
     models = get_models_for_provider(provider)
     details = models.get(model_id)
 
     if not details:
-        state["lbl_model_pricing"].config(text="Model pricing unavailable")
+        state.lbl_model_pricing.config(text="Model pricing unavailable")
         return
 
     provider_label = get_provider_label(provider)
@@ -350,7 +360,7 @@ def update_model_pricing(state) -> None:
     if vendor:
         pricing_text += f"\nVendor: {vendor}"
 
-    state["lbl_model_pricing"].config(text=pricing_text)
+    state.lbl_model_pricing.config(text=pricing_text)
 
 
 def _format_proxy_mapping(mapping: dict[str, str]) -> str:
@@ -361,180 +371,173 @@ def _format_proxy_mapping(mapping: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def update_summary(state) -> None:
+def update_summary(state: AppState) -> None:
     """Update the summary bar with current selections."""
-    if "summary_model" not in state:
+    if not state.summary_model:
         return
 
     # Update model summary
-    provider_var = state.get("llm_provider")
-    provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
-    model_var = state.get("llm_model")
-    model_id = model_var.get() if model_var is not None else DEFAULT_MODEL
+    provider = state.llm_provider.get() or DEFAULT_PROVIDER
+    model_id = state.llm_model.get() or DEFAULT_MODEL
     models = get_models_for_provider(provider)
     model_label = models.get(model_id, {}).get("label", model_id)
-    state["summary_model"].set_text(f"Model: {get_provider_label(provider)} • {model_label}")
+    state.summary_model.set_text(f"Model: {get_provider_label(provider)} • {model_label}")
 
     # Update prompt summary
-    prompts = state.get("prompts") or load_prompts()
-    prompt_key = state["prompt_key"].get()
+    prompts = state.prompts or load_prompts()
+    prompt_key = state.prompt_key.get()
     prompt_entry = prompts.get(prompt_key) or prompts.get("default") or next(iter(prompts.values()), {})
     prompt_text = f"Prompt: {prompt_entry.get('label', prompt_key)}"
-    state["summary_prompt"].set_text(prompt_text)
+    state.summary_prompt.set_text(prompt_text)
 
     # Update output summary
-    destination = state["output_folder_option"].get()
+    destination = state.output_folder_option.get()
     if destination == "Custom":
-        path = state["custom_output_path"].get().strip() or "(not set)"
+        path = state.custom_output_path.get().strip() or "(not set)"
         output_text = f"Output: Custom → {path}"
     else:
         output_text = f"Output: {destination}"
 
-    state["summary_output"].set_text(output_text)
+    state.summary_output.set_text(output_text)
 
     # Trigger scroll check after updating summaries
-    if "_update_summary_scrolling" in state and "summary_container" in state:
-        state["summary_container"].after(50, state["_update_summary_scrolling"])
+    if state._update_summary_scrolling and state.summary_container:
+        state.summary_container.after(50, state._update_summary_scrolling)
 
 
-def set_status(state, message: str) -> None:
+def set_status(state: AppState, message: str) -> None:
     """Update the status bar message."""
-    if "status_var" in state:
-        state["status_var"].set(message)
+    if state.status_var:
+        state.status_var.set(message)
 
 
-def update_prompt_preview(state) -> None:
+def update_prompt_preview(state: AppState) -> None:
     """Update the prompt preview text widget."""
-    if "prompt_preview" not in state:
+    if not state.prompt_preview:
         return
-    prompts = state.get("prompts") or load_prompts()
-    key = state["prompt_key"].get()
+    prompts = state.prompts or load_prompts()
+    key = state.prompt_key.get()
     entry = prompts.get(key)
     if entry is None:
         prompts = load_prompts()
         entry = prompts.get(key) or prompts.get("default") or next(iter(prompts.values()))
-        state["prompts"] = prompts
-        state["prompt_names"] = list(prompts.keys())
+        state.prompts = prompts
+        state.prompt_names = list(prompts.keys())
     label = entry.get("label", key)
     template = entry.get("template", "")
-    widget = state["prompt_preview"]
+    widget = state.prompt_preview
     widget.config(state="normal")
     widget.delete("1.0", "end")
     widget.insert("1.0", f"{label}\n\n{template}".strip())
     widget.config(state="disabled")
 
 
-def refresh_prompt_choices(state) -> None:
+def refresh_prompt_choices(state: AppState) -> None:
     """Refresh the prompt dropdown menu with current prompts."""
     prompts = load_prompts()
-    state["prompts"] = prompts
-    state["prompt_names"] = list(prompts.keys())
-    menu = state.get("prompt_option_menu")
+    state.prompts = prompts
+    state.prompt_names = list(prompts.keys())
+    menu = state.prompt_option_menu
     if menu:
         menu.delete(0, "end")
         for key, entry in prompts.items():
             label = entry.get("label", key)
-            menu.add_command(label=label, command=lambda value=key: state["prompt_key"].set(value))
-    current = state["prompt_key"].get()
+            menu.add_command(label=label, command=lambda value=key: state.prompt_key.set(value))
+    current = state.prompt_key.get()
     if current not in prompts and prompts:
-        state["prompt_key"].set(next(iter(prompts.keys())))
+        state.prompt_key.set(next(iter(prompts.keys())))
     else:
-        state["prompt_key"].set(state["prompt_key"].get())
+        state.prompt_key.set(state.prompt_key.get())
     update_prompt_preview(state)
 
 
-def cleanup_temp_drop_folder(state) -> None:
+def cleanup_temp_drop_folder(state: AppState) -> None:
     """Clean up temporary drop folder if it exists."""
-    folder = state.get("temp_drop_folder")
+    folder = state.temp_drop_folder
     if folder and os.path.isdir(folder):
         try:
             shutil.rmtree(folder)
         except OSError:
             pass
-    state["temp_drop_folder"] = None
+    state.temp_drop_folder = None
 
-def _update_proxy_controls(state) -> None:
+def _update_proxy_controls(state: AppState) -> None:
     """Enable or disable proxy override entry based on proxy enabled state."""
-    entry = state.get("proxy_override_entry")
+    entry = state.proxy_override_entry
     if entry is None:
         return
-    entry_state = "normal" if state.get("proxy_enabled") and state["proxy_enabled"].get() else "disabled"
+    entry_state = "normal" if state.proxy_enabled and state.proxy_enabled.get() else "disabled"
     entry.config(state=entry_state)
 
 
-def _update_proxy_effective_label(state) -> None:
+def _update_proxy_effective_label(state: AppState) -> None:
     """Update the effective proxy label with current settings."""
-    if "proxy_effective_label" not in state:
+    if not state.proxy_effective_label:
         return
-    enabled_var = state.get("proxy_enabled")
-    override_var = state.get("proxy_override")
-    enabled = bool(enabled_var.get()) if enabled_var is not None else True
-    override = override_var.get().strip() if override_var is not None else ""
+    enabled = bool(state.proxy_enabled.get())
+    override = state.proxy_override.get().strip()
     proxies = get_requests_proxies(enabled=enabled, override=override or None)
-    state["proxy_effective_label"].set(_format_proxy_mapping(proxies))
+    state.proxy_effective_label.set(_format_proxy_mapping(proxies))
 
 
-def _apply_proxy_preferences(state, *, force: bool = False) -> None:
+def _apply_proxy_preferences(state: AppState, *, force: bool = False) -> None:
     """Apply proxy preferences and update UI."""
-    if "proxy_enabled" not in state or "proxy_override" not in state:
-        return
-
-    enabled = bool(state["proxy_enabled"].get())
-    override_value = state["proxy_override"].get().strip()
-    last_settings = state.get("_proxy_last_settings") or (None, None)
+    enabled = bool(state.proxy_enabled.get())
+    override_value = state.proxy_override.get().strip()
+    last_settings = state._proxy_last_settings or (None, None)
     current_settings = (enabled, override_value)
 
     if force or current_settings != last_settings:
         set_proxy_preferences(enabled, override_value or None)
-        state["_proxy_last_settings"] = current_settings
+        state._proxy_last_settings = current_settings
 
     _update_proxy_controls(state)
     _update_proxy_effective_label(state)
 
 
-def _refresh_detected_proxy(state) -> None:
+def _refresh_detected_proxy(state: AppState) -> None:
     """Refresh the detected system proxy settings."""
     detected = reload_system_proxies()
-    if "proxy_detected_label" in state:
-        state["proxy_detected_label"].set(_format_proxy_mapping(detected))
+    if state.proxy_detected_label:
+        state.proxy_detected_label.set(_format_proxy_mapping(detected))
     configure_global_proxy(force=True)
     _update_proxy_effective_label(state)
 
 
-def _update_provider_status_labels(state) -> None:
+def _update_provider_status_labels(state: AppState) -> None:
     """Update the API key status labels."""
-    openai_label = state.get("openai_status_label")
+    openai_label = state.openai_status_label
     if openai_label is not None:
-        is_set = bool(state.get("openai_api_key").get()) if "openai_api_key" in state else False
+        is_set = bool(state.openai_api_key.get())
         openai_label.configure(text="✓ Ready" if is_set else "⚠ Not set")
 
-    openrouter_label = state.get("openrouter_status_label")
+    openrouter_label = state.openrouter_status_label
     if openrouter_label is not None:
-        is_set = bool(state.get("openrouter_api_key").get()) if "openrouter_api_key" in state else False
+        is_set = bool(state.openrouter_api_key.get())
         openrouter_label.configure(text="✓ Ready" if is_set else "⚠ Not set")
 
 
-def append_monitor_colored(state, message: str, level: str = "info") -> None:
+def append_monitor_colored(state: AppState, message: str, level: str = "info") -> None:
     """Append a colored message to the activity log."""
     formatted = f"[{level.upper()}] {message}"
-    state["logs"].append((formatted, level))
+    state.logs.append((formatted, level))
     _write_monitor_line_colored(state, (formatted, level))
 
 
-def _clear_monitor(state) -> None:
+def _clear_monitor(state: AppState) -> None:
     """Clear the activity log."""
-    state["logs"].clear()
-    if "log_text" in state:
-        widget = state["log_text"]
+    state.logs.clear()
+    if state.log_text:
+        widget = state.log_text
         widget.config(state="normal")
         widget.delete("1.0", "end")
         widget.config(state="disabled")
 
 
-def _copy_monitor(state) -> None:
+def _copy_monitor(state: AppState) -> None:
     """Copy the activity log to clipboard."""
-    if "log_text" in state:
-        text = state["log_text"].get("1.0", "end")
+    if state.log_text:
+        text = state.log_text.get("1.0", "end")
         if pyperclip is None:
             set_status(state, "Clipboard support not available")
             return
@@ -542,12 +545,12 @@ def _copy_monitor(state) -> None:
         set_status(state, "Log copied to clipboard")
 
 
-def _write_monitor_line_colored(state, log_item) -> None:
+def _write_monitor_line_colored(state: AppState, log_item) -> None:
     """Write a colored line to the activity log."""
-    if "log_text" not in state:
+    if not state.log_text:
         return
 
-    text_widget = state["log_text"]
+    text_widget = state.log_text
     text, level = log_item
 
     text_widget.config(state="normal")
@@ -556,18 +559,18 @@ def _write_monitor_line_colored(state, log_item) -> None:
     text_widget.config(state="disabled")
 
 
-def _clear_context(state, *, silent: bool = False) -> None:
+def _clear_context(state: AppState, *, silent: bool = False) -> None:
     """Clear the context text area."""
-    if "context_widget" in state:
-        state["context_widget"].delete("1.0", "end")
-    state["context_text"].set("")
-    if "context_char_count" in state:
-        state["context_char_count"].set("0 characters")
+    if state.context_widget:
+        state.context_widget.delete("1.0", "end")
+    state.context_text.set("")
+    if state.context_char_count:
+        state.context_char_count.set("0 characters")
     if not silent:
         set_status(state, "Context cleared")
 
 
-def _select_input(state) -> None:
+def _select_input(state: AppState) -> None:
     """Open file dialog to select input folder."""
     temp_root = tk.Tk()
     temp_root.withdraw()
@@ -586,53 +589,53 @@ def _select_input(state) -> None:
         input_path = os.path.dirname(path)
 
     cleanup_temp_drop_folder(state)
-    state["input_path"].set(input_path)
-    recursive = state["recursive_search"].get()
+    state.input_path.set(input_path)
+    recursive = state.recursive_search.get()
     count = get_image_count_in_folder(input_path, recursive)
-    state["image_count"].set(f"{count} image(s)")
+    state.image_count.set(f"{count} image(s)")
     set_status(state, f"Ready to process {count} image(s)")
     _clear_monitor(state)
     update_summary(state)
     _clear_context(state, silent=True)
 
 
-def _select_output_folder(state) -> None:
+def _select_output_folder(state: AppState) -> None:
     """Open folder dialog to select custom output folder."""
     path = filedialog.askdirectory()
     if path:
-        state["custom_output_path"].set(path)
+        state.custom_output_path.set(path)
 
 
-def _browse_tesseract(state) -> None:
+def _browse_tesseract(state: AppState) -> None:
     """Open file dialog to select Tesseract executable."""
     path = filedialog.askopenfilename(filetypes=[("Tesseract Executable", "tesseract.exe")])
     if path:
-        state["tesseract_path"].set(path)
+        state.tesseract_path.set(path)
 
 
-def _save_settings(state) -> None:
+def _save_settings(state: AppState) -> None:
     """Save current settings to config file."""
-    geometry = state["root"].winfo_geometry()
+    geometry = state.root.winfo_geometry()
 
-    if "context_widget" in state:
-        state["context_text"].set(state["context_widget"].get("1.0", "end").strip())
+    if state.context_widget:
+        state.context_text.set(state.context_widget.get("1.0", "end").strip())
 
     save_config(state, geometry)
-    apply_theme(state["root"], state["ui_theme"].get())
+    apply_theme(state.root, state.ui_theme.get())
     messagebox.showinfo("Settings Saved", "✓ Your settings have been saved successfully.")
 
 
-def _reset_token_usage(state) -> None:
+def _reset_token_usage(state: AppState) -> None:
     """Reset the token usage counter."""
-    state["total_tokens"].set(0)
+    state.total_tokens.set(0)
     update_token_label(state)
     append_monitor_colored(state, "Token usage reset to 0", "warn")
 
 
-def _reset_global_stats(state) -> None:
+def _reset_global_stats(state: AppState) -> None:
     """Reset global statistics."""
-    if "global_images_count" in state:
-        state["global_images_count"].set(0)
+    if state.global_images_count:
+        state.global_images_count.set(0)
         append_monitor_colored(state, "Global statistics reset", "warn")
     else:
         append_monitor_colored(state, "No statistics to reset", "warn")
@@ -860,39 +863,91 @@ class PlaceholderEntry(ttk.Entry):
         super().__init__(master, **kwargs)
 
         self.placeholder = placeholder
-        self.placeholder_color = "grey"
+        self.placeholder_color = PALETTE["grey_light"]
         self.default_fg_color = self["foreground"]
+        self._is_placeholder = False
 
         self.bind("<FocusIn>", self._clear_placeholder)
-        self.bind("<FocusOut>", self._add_placeholder)
+        self.bind("<FocusOut>", self._check_placeholder)
 
-        self._add_placeholder()
+        self.after_idle(self._check_placeholder)
 
-    def _add_placeholder(self, e=None):
-        if not self.get():
+    def _check_placeholder(self, event=None):
+        """Check if the placeholder should be added or removed."""
+        if self.get() == "" and not self.focus_get() == self:
+            self._add_placeholder()
+        elif self.get() == self.placeholder:
+            self._clear_placeholder()
+
+    def _add_placeholder(self):
+        """Add the placeholder text."""
+        if self.get() == "":
+            self._is_placeholder = True
             self.insert(0, self.placeholder)
             self["foreground"] = self.placeholder_color
 
-    def _clear_placeholder(self, e=None):
-        if self.get() == self.placeholder:
+    def _clear_placeholder(self, event=None):
+        """Clear the placeholder text."""
+        if self._is_placeholder:
             self.delete(0, "end")
             self["foreground"] = self.default_fg_color
+            self._is_placeholder = False
+
+    def get(self) -> str:
+        """Return the entry's content, or an empty string if it's a placeholder."""
+        if self._is_placeholder:
+            return ""
+        return super().get()
+
+    def insert(self, index, string):
+        """Insert text, clearing placeholder if necessary."""
+        self._clear_placeholder()
+        super().insert(index, string)
+
+    def delete(self, first, last=None):
+        """Delete text, checking for placeholder afterwards."""
+        super().delete(first, last)
+        self.after_idle(self._check_placeholder)
 
 
 class Tooltip:
-    """Create a tooltip for a given widget."""
+    """A tooltip that appears when hovering over a widget."""
 
     def __init__(self, widget, text):
         self.widget = widget
         self.text = text
         self.tooltip_window = None
-        self.widget.bind("<Enter>", self.show_tooltip)
-        self.widget.bind("<Leave>", self.hide_tooltip)
-        self.widget.bind("<Destroy>", self.hide_tooltip)
+        self._after_id = None
+        self.widget.bind("<Enter>", self._on_enter)
+        self.widget.bind("<Leave>", self._on_leave)
+        self.widget.bind("<Destroy>", self._on_destroy)
 
-    def show_tooltip(self, event=None):
+    def _on_enter(self, event=None):
+        """Schedule the tooltip to appear after a delay."""
+        self._cancel_scheduled()
+        self._after_id = self.widget.after(700, self._show_tooltip)
+
+    def _on_leave(self, event=None):
+        """Cancel scheduled tooltip or hide it if visible."""
+        self._cancel_scheduled()
+        self._hide_tooltip()
+
+    def _on_destroy(self, event=None):
+        """Ensure tooltip is destroyed when the parent widget is."""
+        self._cancel_scheduled()
+        self._hide_tooltip()
+
+    def _cancel_scheduled(self):
+        """Cancel any pending after() callbacks."""
+        if self._after_id:
+            self.widget.after_cancel(self._after_id)
+            self._after_id = None
+
+    def _show_tooltip(self):
+        """Create and display the tooltip window."""
         if not self.widget.winfo_exists():
             return
+
         x, y, _, _ = self.widget.bbox("insert")
         x += self.widget.winfo_rootx() + 25
         y += self.widget.winfo_rooty() + 25
@@ -901,26 +956,26 @@ class Tooltip:
         self.tooltip_window.wm_overrideredirect(True)
         self.tooltip_window.wm_geometry(f"+{x}+{y}")
 
-        style = ttk.Style()
-        bg = style.lookup("TFrame", "background")
-        fg = style.lookup("TLabel", "foreground")
+        theme_bg = ttk.Style().lookup("TFrame", "background")
+        theme_fg = ttk.Style().lookup("TLabel", "foreground")
 
         label = ttk.Label(
             self.tooltip_window,
             text=self.text,
             justify="left",
-            background=bg,
-            foreground=fg,
+            background=theme_bg,
+            foreground=theme_fg,
             relief="solid",
             borderwidth=1,
             wraplength=200,
         )
         label.pack(ipadx=4, ipady=4)
 
-    def hide_tooltip(self, event=None):
+    def _hide_tooltip(self):
+        """Destroy the tooltip window if it exists."""
         if self.tooltip_window:
             self.tooltip_window.destroy()
-        self.tooltip_window = None
+            self.tooltip_window = None
 
 
 def create_tooltip(widget, text):

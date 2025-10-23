@@ -6,6 +6,7 @@ import base64
 import math
 import os
 import random
+import re
 import string
 import sys
 from dataclasses import dataclass
@@ -229,12 +230,10 @@ def get_output_folder(state: dict[str, Any]) -> str:
 
 
 def slugify(text: str) -> str:
-    import re
-
     text = text.strip().lower()
     text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"[-\s]+", "-", text)
-    return text
+    slug = re.sub(r"[-\s]+", "-", text)
+    return slug or generate_short_id()
 
 
 def find_tesseract_executable(preferred_path: str = "") -> str | None:

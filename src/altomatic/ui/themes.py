@@ -129,17 +129,6 @@ def _style_menus(widget: tk.Widget, palette: dict[str, str]) -> None:
             except (KeyError, tk.TclError):
                 pass
 
-    try:
-        menu_name = widget.cget("menu")
-    except tk.TclError:
-        menu_name = None
-    if menu_name:
-        try:
-            menu_widget = widget.nametowidget(menu_name)
-            _style_menu_widget(menu_widget, palette)
-        except (KeyError, tk.TclError):
-            pass
-
     for child in widget.winfo_children():
         _style_menus(child, palette)
 

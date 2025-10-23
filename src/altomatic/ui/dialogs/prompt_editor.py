@@ -242,6 +242,19 @@ def open_prompt_editor(state) -> None:
         save_changes()
         editor.destroy()
 
+    def on_cancel() -> None:
+        # Check if working copy has changed from the originally loaded prompts
+        is_dirty = working != prompts
+        if is_dirty:
+            if messagebox.askyesno(
+                "Unsaved Changes",
+                "You have unsaved changes. Are you sure you want to discard them?",
+                parent=editor,
+            ):
+                editor.destroy()
+        else:
+            editor.destroy()
+
     # Button bar
     ttk.Button(button_bar, text="New", command=add_prompt, style="Accent.TButton").grid(row=0, column=0, padx=(0, 6))
     ttk.Button(button_bar, text="Duplicate", command=duplicate_prompt, style="TButton").grid(
@@ -255,10 +268,18 @@ def open_prompt_editor(state) -> None:
     ttk.Button(button_bar, text="Save & Close", command=save_and_close, style="Accent.TButton").grid(
         row=0, column=5, padx=(0, 6)
     )
-    ttk.Button(button_bar, text="Cancel", command=editor.destroy, style="TButton").grid(row=0, column=6, sticky="e")
+    ttk.Button(button_bar, text="Cancel", command=on_cancel, style="TButton").grid(row=0, column=6, sticky="e")
+
+    _search_timer = None
+
+    def debounced_refresh(*args):
+        nonlocal _search_timer
+        if _search_timer:
+            editor.after_cancel(_search_timer)
+        _search_timer = editor.after(150, refresh_list)
 
     # Event bindings
-    search_entry.bind("<KeyRelease>", lambda *_: refresh_list())
+    search_entry.bind("<KeyRelease>", debounced_refresh)
     listbox.bind("<<ListboxSelect>>", load_selected)
     listbox.bind("<Double-Button-1>", lambda *_: template_text.focus_set())
     template_text.bind("<KeyRelease>", lambda *_: update_template_stats())

@@ -2,10 +2,78 @@
 
 from __future__ import annotations
 
-from threading import RLock
-from typing import Any
+import tkinter as tk
+from dataclasses import dataclass, field
+from threading import Lock, RLock
+from typing import Any, Callable
 
 from .services.openrouter_catalog import load_catalog, refresh_catalog
+
+
+@dataclass
+class AppState:
+    """A typed dataclass to hold the application's state."""
+
+    root: tk.Tk
+    menubar: tk.Menu
+    input_type: tk.StringVar
+    input_path: tk.StringVar
+    recursive_search: tk.BooleanVar
+    show_results_table: tk.BooleanVar
+    custom_output_path: tk.StringVar
+    output_folder_option: tk.StringVar
+    openai_api_key: tk.StringVar
+    openrouter_api_key: tk.StringVar
+    proxy_enabled: tk.BooleanVar
+    proxy_override: tk.StringVar
+    filename_language: tk.StringVar
+    alttext_language: tk.StringVar
+    name_detail_level: tk.StringVar
+    vision_detail: tk.StringVar
+    ocr_enabled: tk.BooleanVar
+    tesseract_path: tk.StringVar
+    ocr_language: tk.StringVar
+    ui_theme: tk.StringVar
+    openai_model: tk.StringVar
+    openrouter_model: tk.StringVar
+    llm_provider: tk.StringVar
+    llm_model: tk.StringVar
+    prompt_key: tk.StringVar
+    context_text: tk.StringVar
+    status_var: tk.StringVar
+    image_count: tk.StringVar
+    total_tokens: tk.IntVar
+    token_lock: Lock
+    logs: list[tuple[str, str]]
+    prompts: dict[str, Any]
+    prompt_names: list[str]
+    temp_drop_folder: str | None
+    provider_model_map: dict[str, str]
+    _proxy_last_settings: tuple[bool, str] | None
+
+    _trace_callbacks: dict = field(default_factory=dict)
+
+    # UI Widgets (optional to avoid circular dependencies if moved)
+    input_card: tk.Widget | None = None
+    input_entry: tk.Widget | None = None
+    notebook: ttk.Notebook | None = None
+    status_label: tk.Widget | None = None
+    progress_bar: ttk.Progressbar | None = None
+    process_button: tk.Widget | None = None
+    lbl_token_usage: tk.Widget | None = None
+    summary_label: tk.Widget | None = None
+    custom_output_label: tk.Widget | None = None
+    custom_output_entry: tk.Widget | None = None
+    custom_output_browse_button: tk.Widget | None = None
+    proxy_detected_label: tk.StringVar | None = None
+    proxy_effective_label: tk.StringVar | None = None
+
+    def __post_init__(self):
+        """Initialize fields that depend on other fields."""
+        if self.proxy_detected_label is None:
+            self.proxy_detected_label = tk.StringVar(value="N/A")
+        if self.proxy_effective_label is None:
+            self.proxy_effective_label = tk.StringVar(value="N/A")
 
 _MODELS_LOCK = RLock()
 DEFAULT_PROVIDER = "openai"

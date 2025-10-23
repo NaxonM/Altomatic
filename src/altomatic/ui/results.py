@@ -1,7 +1,7 @@
 """Interactive results window for Altomatic."""
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import pyperclip
 from PIL import Image, ImageTk
 
@@ -11,6 +11,18 @@ from .themes import PALETTE, apply_theme_to_window
 
 def create_results_window(state, results):
     """Create and display the interactive results window."""
+    if not results or not isinstance(results, list):
+        messagebox.showinfo("No Results", "There are no processing results to display.")
+        return
+
+    required_keys = {"original_filename", "new_filename", "alt_text", "original_path"}
+    if not all(key in results[0] for key in required_keys):
+        messagebox.showerror(
+            "Invalid Data",
+            "The results data is malformed and cannot be displayed.",
+        )
+        return
+
     root = state.get("root")
     editor = tk.Toplevel(root)
     editor.title("Processing Results")
@@ -60,28 +72,37 @@ def create_results_window(state, results):
             context_menu.tk_popup(event.x_root, event.y_root)
 
     def copy_new_filename():
-        selected_item = tree.selection()[0]
-        pyperclip.copy(tree.item(selected_item)["values"][1])
+        selection = tree.selection()
+        if not selection:
+            return
+        pyperclip.copy(tree.item(selection[0])["values"][1])
 
     def copy_alt_text():
-        selected_item = tree.selection()[0]
-        pyperclip.copy(tree.item(selected_item)["values"][2])
+        selection = tree.selection()
+        if not selection:
+            return
+        pyperclip.copy(tree.item(selection[0])["values"][2])
 
     def preview_image():
-        selected_item = tree.selection()[0]
-        item_index = int(selected_item)
+        selection = tree.selection()
+        if not selection:
+            return
+        item_index = int(selection[0])
         image_path = results[item_index]["original_path"]
 
         preview = tk.Toplevel(editor)
         preview.title("Image Preview")
 
         img = Image.open(image_path)
-        img.thumbnail((800, 600))
-        photo = ImageTk.PhotoImage(img)
+        try:
+            img.thumbnail((800, 600))
+            photo = ImageTk.PhotoImage(img)
 
-        label = ttk.Label(preview, image=photo)
-        label.image = photo
-        label.pack()
+            label = ttk.Label(preview, image=photo)
+            label.image = photo  # Keep a reference
+            label.pack(padx=10, pady=10)
+        finally:
+            img.close()  # Ensure image file is closed
 
     context_menu.add_command(label="Copy New Filename", command=copy_new_filename)
     context_menu.add_command(label="Copy Alt Text", command=copy_alt_text)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..models import DEFAULT_PROVIDER
+from ..models import AppState, DEFAULT_PROVIDER
 from ..prompts import get_prompt_template
 from ..services.providers.exceptions import OCRError
 from ..services.providers.openai import OpenAIProvider
@@ -31,29 +31,30 @@ def get_provider(provider_name: str):
     return _provider_instances[provider_name]
 
 
-def describe_image(state: dict[str, Any], image_path: str) -> dict | None:
-    proxy_enabled_var = state.get("proxy_enabled")
-    proxy_enabled = proxy_enabled_var.get() if proxy_enabled_var else True
-    proxy_override_var = state.get("proxy_override")
-    proxy_override = proxy_override_var.get().strip() if proxy_override_var else ""
+def describe_image(state: AppState, image_path: str) -> dict | None:
+    proxy_enabled = state.proxy_enabled.get()
+    proxy_override = state.proxy_override.get().strip()
 
     configure_global_proxy(enabled=proxy_enabled, override=proxy_override or None, force=False)
     proxies = get_requests_proxies(enabled=proxy_enabled, override=proxy_override or None)
-    state["proxies"] = proxies
+    state.proxies = proxies
 
-    provider_name_var = state.get("llm_provider")
-    provider_name = provider_name_var.get() if provider_name_var else DEFAULT_PROVIDER
-    provider = get_provider(provider_name)
+    provider_name = state.llm_provider.get() or DEFAULT_PROVIDER
+    try:
+        provider = get_provider(provider_name)
+    except ValueError as e:
+        append_monitor_colored(state, f"Error selecting provider: {e}", "error")
+        return None
 
-    name_lang = state.get("filename_language").get().lower() if state.get("filename_language") else "english"
-    alt_lang = state.get("alttext_language").get().lower() if state.get("alttext_language") else "english"
-    detail_level = state.get("name_detail_level").get().lower() if state.get("name_detail_level") else "detailed"
-    ocr_enabled = state.get("ocr_enabled").get() if state.get("ocr_enabled") else False
-    tesseract_path = state.get("tesseract_path").get() if state.get("tesseract_path") else ""
-    ocr_lang = state.get("ocr_language").get() if state.get("ocr_language") else "eng"
-    prompt_key = state.get("prompt_key").get() if state.get("prompt_key") else "default"
+    name_lang = state.filename_language.get().lower()
+    alt_lang = state.alttext_language.get().lower()
+    detail_level = state.name_detail_level.get().lower()
+    ocr_enabled = state.ocr_enabled.get()
+    tesseract_path = state.tesseract_path.get()
+    ocr_lang = state.ocr_language.get()
+    prompt_key = state.prompt_key.get()
     prompt_template = get_prompt_template(prompt_key).strip()
-    user_context = state.get("context_text").get().strip() if state.get("context_text") else ""
+    user_context = state.context_text.get().strip()
 
     ocr_text = ""
     if ocr_enabled:

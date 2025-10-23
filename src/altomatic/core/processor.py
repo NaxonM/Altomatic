@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 import shutil
 from queue import Queue
-from typing import Dict, Any, List
+from typing import List
 
 from PIL import UnidentifiedImageError
 
-from ..models import DEFAULT_PROVIDER, get_provider_label
+from ..models import AppState, DEFAULT_PROVIDER, get_provider_label
 from ..services.ai import describe_image
 from ..services.providers.exceptions import AuthenticationError, APIError, NetworkError
 from ..ui import cleanup_temp_drop_folder
@@ -22,23 +22,21 @@ from ..utils.images import (
 )
 
 
-def process_images(state: Dict[str, Any]) -> None:
+def process_images(state: AppState) -> None:
     """The core image processing pipeline."""
-    ui_queue: Queue | None = state.get("ui_queue")
+    ui_queue = state.ui_queue
     if not ui_queue:
         return
 
-    results: List[Dict[str, Any]] = []
+    results: List[dict[str, Any]] = []
 
     try:
-        provider_var = state.get("llm_provider")
-        provider = provider_var.get() if provider_var else DEFAULT_PROVIDER
+        provider = state.llm_provider.get()
         if provider not in {"openai", "openrouter"}:
             provider = DEFAULT_PROVIDER
 
-        api_key_field = "openrouter_api_key" if provider == "openrouter" else "openai_api_key"
-        api_key_var = state.get(api_key_field)
-        api_key = api_key_var.get().strip() if api_key_var else ""
+        api_key = state.openrouter_api_key.get() if provider == "openrouter" else state.openai_api_key.get()
+        api_key = api_key.strip()
 
         if not api_key:
             ui_queue.put(
@@ -50,8 +48,7 @@ def process_images(state: Dict[str, Any]) -> None:
             )
             return
 
-        input_path_var = state.get("input_path")
-        input_path = input_path_var.get() if input_path_var else ""
+        input_path = state.input_path.get()
         if not input_path or not os.path.exists(input_path):
             ui_queue.put({"type": "error", "title": "Invalid Input", "value": "Input path does not exist."})
             return
@@ -67,13 +64,10 @@ def process_images(state: Dict[str, Any]) -> None:
             )
             return
 
-        input_type_var = state.get("input_type")
-        input_type = input_type_var.get() if input_type_var else "File"
-        if input_type == "File":
+        if state.input_type.get() == "File":
             images = [input_path]
         else:
-            recursive_var = state.get("include_subdirectories")
-            recursive = recursive_var.get() if recursive_var else False
+            recursive = state.recursive_search.get()
             images = get_all_images(input_path, recursive)
 
         if not images:
@@ -81,9 +75,8 @@ def process_images(state: Dict[str, Any]) -> None:
             return
 
         ui_queue.put({"type": "log", "value": f"Found {len(images)} images to process.", "level": "info"})
-        total_tokens_var = state.get("total_tokens")
-        if total_tokens_var:
-            total_tokens_var.set(0)
+        if state.total_tokens:
+            state.total_tokens.set(0)
 
         os.makedirs(base_output_folder, exist_ok=True)
 
@@ -179,14 +172,14 @@ def process_images(state: Dict[str, Any]) -> None:
             except OSError:
                 pass
 
-        if "global_images_count" in state:
-            previous = state["global_images_count"].get()
+        if state.global_images_count:
+            previous = state.global_images_count.get()
             new_total = previous + len(images)
-            state["global_images_count"].set(new_total)
+            state.global_images_count.set(new_total)
         else:
             new_total = len(images)
 
-        total_tokens = state["total_tokens"].get()
+        total_tokens = state.total_tokens.get()
         message = (
             f"Processed {len(images)} image(s).\n"
             f"Session folder: {session_path}\n"
@@ -196,7 +189,7 @@ def process_images(state: Dict[str, Any]) -> None:
         )
         ui_queue.put({"type": "log", "value": message.replace("\n", " | "), "level": "info"})
 
-        if state["show_results_table"].get():
+        if state.show_results_table.get():
             ui_queue.put({"type": "done_with_results", "value": message, "results": results})
         else:
             ui_queue.put({"type": "done", "value": message})

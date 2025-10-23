@@ -48,6 +48,7 @@ class OpenRouterModel:
             except (ValueError, TypeError):
                 return 0.0
 
+        # Only include completely free models (all pricing fields must be 0)
         if any(_parse_price(field) > 0 for field in ("prompt", "completion", "image", "request")):
             return None
 

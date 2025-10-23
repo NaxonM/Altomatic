@@ -8,6 +8,7 @@ from tkinter import ttk
 
 from ..models import (
     AVAILABLE_PROVIDERS,
+    AppState,
     default_models,
     DEFAULT_PROVIDER,
     get_default_model,
@@ -118,57 +119,58 @@ def build_ui(root, user_config):
         active_model = get_default_model(provider)
     provider_model_map[provider] = active_model
 
-    # Central state dictionary
-    state = {
-        "root": root,
-        "menubar": menubar,
-        "input_type": tk.StringVar(value="Folder"),
-        "input_path": tk.StringVar(value=""),
-        "recursive_search": tk.BooleanVar(value=user_config.get("recursive_search", False)),
-        "show_results_table": tk.BooleanVar(value=user_config.get("show_results_table", True)),
-        "custom_output_path": tk.StringVar(value=user_config.get("custom_output_path", "")),
-        "output_folder_option": tk.StringVar(value=user_config.get("output_folder_option", "Same as input")),
-        "openai_api_key": tk.StringVar(value=user_config.get("openai_api_key", "")),
-        "openrouter_api_key": tk.StringVar(value=user_config.get("openrouter_api_key", "")),
-        "proxy_enabled": tk.BooleanVar(value=user_config.get("proxy_enabled", True)),
-        "proxy_override": tk.StringVar(value=user_config.get("proxy_override", "")),
-        "filename_language": tk.StringVar(value=user_config.get("filename_language", "English")),
-        "alttext_language": tk.StringVar(value=user_config.get("alttext_language", "English")),
-        "name_detail_level": tk.StringVar(value=user_config.get("name_detail_level", "Detailed")),
-        "vision_detail": tk.StringVar(value=user_config.get("vision_detail", "auto")),
-        "ocr_enabled": tk.BooleanVar(value=user_config.get("ocr_enabled", False)),
-        "tesseract_path": tk.StringVar(value=user_config.get("tesseract_path", "")),
-        "ocr_language": tk.StringVar(value=user_config.get("ocr_language", "eng")),
-        "ui_theme": tk.StringVar(value=user_config.get("ui_theme", "Arctic Light")),
-        "openai_model": tk.StringVar(value=provider_model_map["openai"]),
-        "openrouter_model": tk.StringVar(value=provider_model_map["openrouter"]),
-        "llm_provider": tk.StringVar(value=provider),
-        "llm_model": tk.StringVar(value=active_model),
-        "prompt_key": tk.StringVar(value=active_prompt),
-        "context_text": tk.StringVar(value=user_config.get("context_text", "")),
-        "status_var": tk.StringVar(value="Ready"),
-        "image_count": tk.StringVar(value=""),
-        "total_tokens": tk.IntVar(value=0),
-        "token_lock": threading.Lock(),
-        "logs": [],
-        "prompts": prompts_data,
-        "prompt_names": prompt_names,
-        "temp_drop_folder": None,
-        "provider_model_map": provider_model_map,
-        "_proxy_last_settings": None,
-    }
+    # Central state dataclass
+    state = AppState(
+        root=root,
+        menubar=menubar,
+        input_type=tk.StringVar(value="Folder"),
+        input_path=tk.StringVar(value=""),
+        recursive_search=tk.BooleanVar(value=user_config.get("recursive_search", False)),
+        show_results_table=tk.BooleanVar(value=user_config.get("show_results_table", True)),
+        custom_output_path=tk.StringVar(value=user_config.get("custom_output_path", "")),
+        output_folder_option=tk.StringVar(value=user_config.get("output_folder_option", "Same as input")),
+        openai_api_key=tk.StringVar(value=user_config.get("openai_api_key", "")),
+        openrouter_api_key=tk.StringVar(value=user_config.get("openrouter_api_key", "")),
+        proxy_enabled=tk.BooleanVar(value=user_config.get("proxy_enabled", True)),
+        proxy_override=tk.StringVar(value=user_config.get("proxy_override", "")),
+        filename_language=tk.StringVar(value=user_config.get("filename_language", "English")),
+        alttext_language=tk.StringVar(value=user_config.get("alttext_language", "English")),
+        name_detail_level=tk.StringVar(value=user_config.get("name_detail_level", "Detailed")),
+        vision_detail=tk.StringVar(value=user_config.get("vision_detail", "auto")),
+        ocr_enabled=tk.BooleanVar(value=user_config.get("ocr_enabled", False)),
+        tesseract_path=tk.StringVar(value=user_config.get("tesseract_path", "")),
+        ocr_language=tk.StringVar(value=user_config.get("ocr_language", "eng")),
+        ui_theme=tk.StringVar(value=user_config.get("ui_theme", "Arctic Light")),
+        openai_model=tk.StringVar(value=provider_model_map["openai"]),
+        openrouter_model=tk.StringVar(value=provider_model_map["openrouter"]),
+        llm_provider=tk.StringVar(value=provider),
+        llm_model=tk.StringVar(value=active_model),
+        prompt_key=tk.StringVar(value=active_prompt),
+        context_text=tk.StringVar(value=user_config.get("context_text", "")),
+        status_var=tk.StringVar(value="Ready"),
+        image_count=tk.StringVar(value=""),
+        total_tokens=tk.IntVar(value=0),
+        token_lock=threading.Lock(),
+        logs=[],
+        prompts=prompts_data,
+        prompt_names=prompt_names,
+        temp_drop_folder=None,
+        provider_model_map=provider_model_map,
+        _proxy_last_settings=None,
+        _trace_callbacks={},
+    )
 
     # Proxy setup
     detected_initial = detect_system_proxies()
-    state["proxy_detected_label"] = tk.StringVar(value=_format_proxy_mapping(detected_initial))
+    state.proxy_detected_label.set(_format_proxy_mapping(detected_initial))
     effective_initial = get_requests_proxies(
-        enabled=state["proxy_enabled"].get(),
-        override=state["proxy_override"].get().strip() or None,
+        enabled=state.proxy_enabled.get(),
+        override=state.proxy_override.get().strip() or None,
     )
-    state["proxy_effective_label"] = tk.StringVar(value=_format_proxy_mapping(effective_initial))
-    state["_proxy_last_settings"] = (
-        state["proxy_enabled"].get(),
-        state["proxy_override"].get().strip(),
+    state.proxy_effective_label.set(_format_proxy_mapping(effective_initial))
+    state._proxy_last_settings = (
+        state.proxy_enabled.get(),
+        state.proxy_override.get().strip(),
     )
 
     # Build UI sections
@@ -203,51 +205,55 @@ def build_ui(root, user_config):
     _build_menus(menubar, root, state)
 
     def on_output_folder_change(*args):
-        is_custom = state["output_folder_option"].get() == "Custom"
+        is_custom = state.output_folder_option.get() == "Custom"
         if is_custom:
-            state["custom_output_label"].grid()
-            state["custom_output_entry"].grid()
-            state["custom_output_browse_button"].grid()
+            state.custom_output_label.grid()
+            state.custom_output_entry.grid()
+            state.custom_output_browse_button.grid()
         else:
-            state["custom_output_label"].grid_remove()
-            state["custom_output_entry"].grid_remove()
-            state["custom_output_browse_button"].grid_remove()
+            state.custom_output_label.grid_remove()
+            state.custom_output_entry.grid_remove()
+            state.custom_output_browse_button.grid_remove()
         update_summary(state)
 
     def on_model_change(*_):
-        provider_key = state["llm_provider"].get()
-        current_model = state["llm_model"].get()
-        state["provider_model_map"][provider_key] = current_model
-        model_var_key = f"{provider_key}_model"
-        if model_var_key in state:
-            state[model_var_key].set(current_model)
+        provider_key = state.llm_provider.get()
+        current_model = state.llm_model.get()
+        state.provider_model_map[provider_key] = current_model
+        model_var = getattr(state, f"{provider_key}_model", None)
+        if model_var:
+            model_var.set(current_model)
         update_model_pricing(state)
         update_summary(state)
 
     def on_provider_change(*_):
-        selected = state["llm_provider"].get()
+        selected = state.llm_provider.get()
         if selected not in AVAILABLE_PROVIDERS:
             selected = DEFAULT_PROVIDER
-            state["llm_provider"].set(selected)
-        model_choice = state["provider_model_map"].get(selected) or get_default_model(selected)
+            state.llm_provider.set(selected)
+        model_choice = state.provider_model_map.get(selected) or get_default_model(selected)
         if model_choice not in get_models_for_provider(selected):
             model_choice = get_default_model(selected)
-        if state["llm_model"].get() != model_choice:
-            state["llm_model"].set(model_choice)
+        if state.llm_model.get() != model_choice:
+            state.llm_model.set(model_choice)
         else:
             on_model_change()
 
     # Trace additions
-    state["llm_model"].trace_add("write", lambda *_: on_model_change())
-    state["llm_provider"].trace_add("write", lambda *_: on_provider_change())
-    state["prompt_key"].trace_add("write", lambda *_: (update_prompt_preview(state), update_summary(state)))
-    state["output_folder_option"].trace_add("write", on_output_folder_change)
-    state["custom_output_path"].trace_add("write", lambda *_: update_summary(state))
-    state["ui_theme"].trace_add("write", lambda *_, **kwargs: apply_theme(root, state["ui_theme"].get()))
-    state["proxy_enabled"].trace_add("write", lambda *_: _apply_proxy_preferences(state))
-    state["proxy_override"].trace_add("write", lambda *_: _apply_proxy_preferences(state))
-    state["openai_api_key"].trace_add("write", lambda *_: _update_provider_status_labels(state))
-    state["openrouter_api_key"].trace_add("write", lambda *_: _update_provider_status_labels(state))
+    def add_trace(var, callback):
+        if var not in state._trace_callbacks:
+            state._trace_callbacks[var] = var.trace_add("write", callback)
+
+    add_trace(state.llm_model, lambda *_: on_model_change())
+    add_trace(state.llm_provider, lambda *_: on_provider_change())
+    add_trace(state.prompt_key, lambda *_: (update_prompt_preview(state), update_summary(state)))
+    add_trace(state.output_folder_option, on_output_folder_change)
+    add_trace(state.custom_output_path, lambda *_: update_summary(state))
+    add_trace(state.ui_theme, lambda *_, **kwargs: apply_theme(root, state.ui_theme.get()))
+    add_trace(state.proxy_enabled, lambda *_: _apply_proxy_preferences(state))
+    add_trace(state.proxy_override, lambda *_: _apply_proxy_preferences(state))
+    add_trace(state.openai_api_key, lambda *_: _update_provider_status_labels(state))
+    add_trace(state.openrouter_api_key, lambda *_: _update_provider_status_labels(state))
 
     # Trigger initial state
     on_output_folder_change()
@@ -260,12 +266,12 @@ def build_ui(root, user_config):
     return state
 
 
-def _build_input_card(parent, state) -> None:
+def _build_input_card(parent, state: AppState) -> None:
     """Build the input selection card with drag-and-drop support."""
     input_card = ttk.Frame(parent, style="Card.TFrame", padding=16)
     input_card.grid(row=0, column=0, sticky="ew", pady=(0, 16))
     input_card.columnconfigure(0, weight=1)
-    state["input_card"] = input_card
+    state.input_card = input_card
 
     # Header
     header_frame = ttk.Frame(input_card, style="Section.TFrame")
@@ -280,12 +286,12 @@ def _build_input_card(parent, state) -> None:
 
     entry = PlaceholderEntry(
         input_frame,
-        textvariable=state["input_path"],
+        textvariable=state.input_path,
         placeholder="Drop files/folders here or browse...",
         width=50,
     )
     entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-    state["input_entry"] = entry
+    state.input_entry = entry
     ttk.Button(input_frame, text="Browse...", command=lambda: _select_input(state), style="TButton").grid(
         row=0, column=1
     )
@@ -295,11 +301,11 @@ def _build_input_card(parent, state) -> None:
     options_frame.grid(row=2, column=0, sticky="ew", pady=(0, 12))
     options_frame.columnconfigure(1, weight=1)
 
-    ttk.Checkbutton(options_frame, text="Include subdirectories", variable=state["recursive_search"]).grid(
+    ttk.Checkbutton(options_frame, text="Include subdirectories", variable=state.recursive_search).grid(
         row=0, column=0, sticky="w"
     )
 
-    ttk.Label(options_frame, textvariable=state["image_count"], style="Small.TLabel").grid(row=0, column=1, sticky="e")
+    ttk.Label(options_frame, textvariable=state.image_count, style="Small.TLabel").grid(row=0, column=1, sticky="e")
 
     # Summary bar with scrolling support
     summary_frame = ttk.Frame(input_card, style="Section.TFrame")
@@ -309,40 +315,40 @@ def _build_input_card(parent, state) -> None:
     # Create a single animated label for the summary "train"
     summary_label = AnimatedLabel(summary_frame, style="Small.TLabel")
     summary_label.grid(row=0, column=0, sticky="ew")
-    state["summary_label"] = summary_label
+    state.summary_label = summary_label
 
 
-def _build_main_notebook(parent, state) -> ttk.Notebook:
+def _build_main_notebook(parent, state: AppState) -> ttk.Notebook:
     """Build the main tabbed notebook."""
     notebook = ttk.Notebook(parent)
     notebook.grid(row=1, column=0, sticky="nsew", pady=(0, 16))
-    state["notebook"] = notebook
+    state.notebook = notebook
     return notebook
 
 
-def _build_footer(parent, state) -> None:
+def _build_footer(parent, state: AppState) -> None:
     """Build the footer with status bar and action buttons."""
     footer = ttk.Frame(parent, style="TFrame")
     footer.grid(row=2, column=0, sticky="ew")
     footer.columnconfigure(1, weight=1)
 
     # Status label on the far left
-    state["status_label"] = ttk.Label(footer, textvariable=state["status_var"], style="Status.TLabel")
-    state["status_label"].grid(row=0, column=0, sticky="w", padx=(0, 16))
+    state.status_label = ttk.Label(footer, textvariable=state.status_var, style="Status.TLabel")
+    state.status_label.grid(row=0, column=0, sticky="w", padx=(0, 16))
 
     # Progress bar in the middle
-    state["progress_bar"] = ttk.Progressbar(footer, mode="determinate")
-    state["progress_bar"].grid(row=0, column=1, sticky="ew")
+    state.progress_bar = ttk.Progressbar(footer, mode="determinate")
+    state.progress_bar.grid(row=0, column=1, sticky="ew")
 
     # Action buttons and token usage on the far right
     actions_frame = ttk.Frame(footer, style="TFrame")
     actions_frame.grid(row=0, column=2, sticky="e", padx=(16, 0))
 
-    state["process_button"] = ttk.Button(actions_frame, text="Describe Images", style="Accent.TButton")
-    state["process_button"].grid(row=0, column=0, sticky="e", padx=(0, 16))
+    state.process_button = ttk.Button(actions_frame, text="Describe Images", style="Accent.TButton")
+    state.process_button.grid(row=0, column=0, sticky="e", padx=(0, 16))
 
-    state["lbl_token_usage"] = ttk.Label(actions_frame, text="Tokens: 0", style="Status.TLabel")
-    state["lbl_token_usage"].grid(row=0, column=1, sticky="e")
+    state.lbl_token_usage = ttk.Label(actions_frame, text="Tokens: 0", style="Status.TLabel")
+    state.lbl_token_usage.grid(row=0, column=1, sticky="e")
 
 
 def _build_menus(menubar, root, state) -> None:

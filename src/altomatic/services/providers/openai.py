@@ -18,6 +18,7 @@ except ModuleNotFoundError:
 from .base import BaseProvider
 from .exceptions import APIError, AuthenticationError, NetworkError
 from ...ui import append_monitor_colored, update_token_label
+from ...utils.text import extract_json_from_string
 
 
 class OpenAIProvider(BaseProvider):
@@ -67,7 +68,10 @@ class OpenAIProvider(BaseProvider):
                         state["total_tokens"].set(previous + total_tokens)
                     update_token_label(state)
 
-                return json.loads(response_text)
+                json_result = extract_json_from_string(response_text)
+                if not json_result:
+                    raise APIError("Model response was not valid JSON.")
+                return json_result
 
             except OpenAIAuthError as e:
                 raise AuthenticationError("Invalid OpenAI API key. Please check your settings.") from e

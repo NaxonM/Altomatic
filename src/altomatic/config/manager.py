@@ -107,7 +107,8 @@ def load_config() -> dict[str, Any]:
         if theme_value in legacy_themes:
             config["ui_theme"] = legacy_themes[theme_value]
         return config
-    except (IOError, json.JSONDecodeError):
+    except (IOError, json.JSONDecodeError, TypeError) as exc:
+        print(f"⚠️ Could not load or parse config file: {exc}")
         return DEFAULT_CONFIG.copy()
 
 

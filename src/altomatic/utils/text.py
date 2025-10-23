@@ -45,7 +45,11 @@ def extract_json_from_string(text: str) -> dict | None:
                         return result
                 except json.JSONDecodeError:
                     # This substring was not valid JSON, so we continue searching
-                    # from the same start_index to find a larger balanced object.
+                    # from the next potential starting brace.
                     pass
+
+                # We found a balanced segment (valid JSON or not).
+                # Stop searching from this start_index and move to the next one.
+                break
 
     return None
