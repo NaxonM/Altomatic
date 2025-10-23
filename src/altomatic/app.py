@@ -58,12 +58,6 @@ def run() -> None:
 
     root = TkinterDnD.Tk()
     root.title("Altomatic")
-    stored_geometry = user_config.get("window_geometry", DEFAULT_CONFIG.get("window_geometry", "540x680"))
-    if stored_geometry == DEFAULT_CONFIG.get("window_geometry", "540x680"):
-        geometry = _scaled_geometry(root, 540, 680)
-    else:
-        geometry = stored_geometry
-    root.geometry(geometry)
     root.resizable(True, True)
     _apply_window_icon(root)
 
@@ -176,6 +170,14 @@ def run() -> None:
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # Defer geometry calculation until after UI is built
+    stored_geometry = user_config.get("window_geometry", DEFAULT_CONFIG.get("window_geometry", "540x680"))
+    if stored_geometry == DEFAULT_CONFIG.get("window_geometry", "540x680"):
+        geometry = _scaled_geometry(root, 540, 680)
+    else:
+        geometry = stored_geometry
+    root.geometry(geometry)
 
     root.after(100, process_queue)
     root.mainloop()
