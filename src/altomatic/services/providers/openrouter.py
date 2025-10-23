@@ -29,90 +29,89 @@ class OpenRouterProvider(BaseProvider):
         proxies = state.get("proxies")
         provider_hint = get_provider_hint("openrouter", model_id)
 
-        payload = {
-            "model": model_id,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": encoded_image, "detail": vision_detail},
-                        },
-                    ],
-                }
-            ],
-            "response_format": {"type": "json_object"},
-        }
-
-        if provider_hint:
-            payload["provider"] = {"order": [provider_hint], "allow_fallbacks": False}
-
-        headers = {
-            **OPENROUTER_HEADERS,
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response = requests.post(
-                f"{OPENROUTER_BASE_URL}/chat/completions",
-                json=payload,
-                headers=headers,
-                timeout=90,
-                proxies=proxies or None,
-            )
-            response.raise_for_status()
-
-            data = response.json()
-            response_text = self._extract_response_text(data)
-
-            if not response_text:
-                raise APIError("Model returned no textual output.")
-
-            append_monitor_colored(state, f"[API RAW OUTPUT]\n{response_text}", "info")
-
-            json_result = extract_json_from_string(response_text)
-            if not json_result:
-                raise APIError("Model response was not valid JSON.")
-
-            usage_data = data.get("usage")
-            if isinstance(usage_data, dict):
-                total_tokens = usage_data.get("total_tokens") or usage_data.get("total")
-                if total_tokens is not None:
-                    append_monitor_colored(state, f"[TOKEN USAGE] +{total_tokens} tokens", "token")
-                    previous = state["total_tokens"].get()
-                    state["total_tokens"].set(previous + int(total_tokens))
-                    update_token_label(state)
-
-            return json_result
-
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401:
-                raise AuthenticationError("Invalid OpenRouter API key.") from e
-
+        def _make_request():
             try:
-                error_data = e.response.json()
-                error_details = error_data.get("error", {})
+                payload = {
+                    "model": model_id,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": encoded_image, "detail": vision_detail},
+                                },
+                            ],
+                        }
+                    ],
+                    "response_format": {"type": "json_object"},
+                }
 
-                # Prioritize the most specific error message from the underlying provider
-                provider_message = error_details.get("provider_error", {}).get("message")
-                if provider_message:
-                    message = f"Provider returned error: {provider_message}"
-                else:
-                    # Fallback to the main error message from OpenRouter
-                    message = error_details.get("message", e.response.text)
-            except json.JSONDecodeError:
-                # If the response is not JSON, use the raw text
-                message = e.response.text
+                if provider_hint:
+                    payload["provider"] = {"order": [provider_hint], "allow_fallbacks": False}
 
-            raise APIError(f"OpenRouter API error ({e.response.status_code}): {message}") from e
+                headers = {
+                    **OPENROUTER_HEADERS,
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                }
 
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(f"Could not connect to OpenRouter API: {e}") from e
-        except Exception as e:
-            raise APIError(f"An unexpected error occurred with OpenRouter: {e}") from e
+                response = requests.post(
+                    f"{OPENROUTER_BASE_URL}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                    timeout=90,
+                    proxies=proxies or None,
+                )
+                response.raise_for_status()
+
+                data = response.json()
+                response_text = self._extract_response_text(data)
+
+                if not response_text:
+                    raise APIError("Model returned no textual output.")
+
+                append_monitor_colored(state, f"[API RAW OUTPUT]\n{response_text}", "info")
+
+                json_result = extract_json_from_string(response_text)
+                if not json_result:
+                    raise APIError("Model response was not valid JSON.")
+
+                usage_data = data.get("usage")
+                if isinstance(usage_data, dict):
+                    total_tokens = usage_data.get("total_tokens") or usage_data.get("total")
+                    if total_tokens is not None:
+                        append_monitor_colored(state, f"[TOKEN USAGE] +{total_tokens} tokens", "token")
+                        with state["token_lock"]:
+                            previous = state["total_tokens"].get()
+                            state["total_tokens"].set(previous + int(total_tokens))
+                        update_token_label(state)
+
+                return json_result
+
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 401:
+                    raise AuthenticationError("Invalid OpenRouter API key.") from e
+
+                try:
+                    error_data = e.response.json()
+                    error_details = error_data.get("error", {})
+                    provider_message = error_details.get("provider_error", {}).get("message")
+                    if provider_message:
+                        message = f"Provider returned error: {provider_message}"
+                    else:
+                        message = error_details.get("message", e.response.text)
+                except json.JSONDecodeError:
+                    message = e.response.text
+
+                raise APIError(f"OpenRouter API error ({e.response.status_code}): {message}") from e
+            except requests.exceptions.RequestException as e:
+                raise NetworkError(f"Could not connect to OpenRouter API: {e}") from e
+            except Exception as e:
+                raise APIError(f"An unexpected error occurred with OpenRouter: {e}") from e
+
+        return self._request_with_retry(_make_request)
 
     def _extract_response_text(self, payload: Any) -> str | None:
         if payload is None:

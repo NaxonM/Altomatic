@@ -44,6 +44,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 
 def _obfuscate_api_key(plaintext: str) -> str:
+    # WARNING: This is NOT encryption. It is trivial to reverse.
+    # This is only to prevent casual observation of the key in the config file.
+    # For real security, use a proper secrets management solution.
     raw = SECRET_PREFIX + plaintext
     return base64.b64encode(raw.encode("utf-8")).decode("utf-8")
 
@@ -54,7 +57,7 @@ def _deobfuscate_api_key(ciphertext: str) -> str:
         if data.startswith(SECRET_PREFIX):
             return data[len(SECRET_PREFIX) :]
         return ""
-    except Exception:
+    except (TypeError, ValueError):
         return ""
 
 
@@ -104,7 +107,7 @@ def load_config() -> dict[str, Any]:
         if theme_value in legacy_themes:
             config["ui_theme"] = legacy_themes[theme_value]
         return config
-    except Exception:
+    except (IOError, json.JSONDecodeError):
         return DEFAULT_CONFIG.copy()
 
 
@@ -125,7 +128,7 @@ def save_config(state, geometry: str) -> None:
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
-    except Exception as exc:
+    except IOError as exc:
         print(f"⚠️ Could not save config: {exc}")
 
 
@@ -133,7 +136,7 @@ def reset_config() -> None:
     if os.path.exists(CONFIG_FILE):
         try:
             os.remove(CONFIG_FILE)
-        except Exception as exc:
+        except IOError as exc:
             print(f"⚠️ Could not delete config: {exc}")
 
 

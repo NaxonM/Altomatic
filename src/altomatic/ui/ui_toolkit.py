@@ -41,35 +41,114 @@ class AnimatedLabel(ttk.Label):
         super().__init__(master, **kwargs)
         self.full_text = ""
         self.running = False
+        self._after_id = None
         self.bind("<Configure>", self.check_width)
+        self.bind("<Destroy>", self._on_destroy)
 
     def set_text(self, text):
         self.full_text = text
-        self.running = False  # Reset animation state
+        if self.running:
+            self.running = False
+            if self._after_id:
+                self.after_cancel(self._after_id)
+                self._after_id = None
         self.check_width()
 
     def check_width(self, event=None):
-        if not self.full_text:
+        if not self.winfo_exists() or not self.full_text:
             return
+
         self.config(text=self.full_text)
         self.update_idletasks()
-        if self.winfo_width() < self.winfo_reqwidth() and not self.running:
+
+        is_overflowing = self.winfo_width() < self.winfo_reqwidth()
+
+        if is_overflowing and not self.running:
             self.running = True
             self.animate()
-        elif self.winfo_width() >= self.winfo_reqwidth() and self.running:
+        elif not is_overflowing and self.running:
             self.running = False
-            self.config(text=self.full_text)  # Show full text when not scrolling
+            if self._after_id:
+                self.after_cancel(self._after_id)
+                self._after_id = None
+            self.config(text=self.full_text)
 
     def animate(self):
         if not self.running:
             self.config(text=self.full_text)
             return
+
         text = self.cget("text")
-        first_char = text[0]
-        rest = text[1:]
-        new_text = rest + first_char
-        self.config(text=new_text)
-        self.after(200, self.animate)
+        if text:
+            text = text[1:] + text[0]
+            self.config(text=text)
+
+        self._after_id = self.after(200, self.animate)
+
+    def _on_destroy(self, event):
+        if self.running and self._after_id:
+            self.after_cancel(self._after_id)
+        self.running = False
+
+
+class ScrollableFrame(ttk.Frame):
+    """A scrollable frame container for dynamic content."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        # Create canvas and scrollbar with proper background
+        style = ttk.Style()
+        bg_color = style.lookup("TFrame", "background")
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=bg_color)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        # Configure canvas scrolling with after_idle to prevent race conditions
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.after_idle(lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all"))),
+        )
+
+        # Create window in canvas and configure canvas resizing
+        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        # Layout
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.scrollbar.grid(row=0, column=1, sticky="ns")
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        # Enable mousewheel scrolling
+        self.bind("<Enter>", self._bind_mousewheel)
+        self.bind("<Leave>", self._unbind_mousewheel)
+
+    def _on_canvas_configure(self, event):
+        """Adjust the scrollable frame width to match canvas width."""
+        if self.winfo_exists():
+            self.canvas.itemconfig(self.canvas_frame, width=event.width)
+
+    def _bind_mousewheel(self, event):
+        """Bind mousewheel to canvas scrolling."""
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind_all("<Button-4>", self._on_mousewheel)
+        self.canvas.bind_all("<Button-5>", self._on_mousewheel)
+
+    def _unbind_mousewheel(self, event):
+        """Unbind mousewheel from canvas scrolling."""
+        self.canvas.unbind_all("<MouseWheel>")
+        self.canvas.unbind_all("<Button-4>")
+        self.canvas.unbind_all("<Button-5>")
+
+    def _on_mousewheel(self, event):
+        """Handle mousewheel scrolling."""
+        if event.num == 4 or event.delta > 0:
+            self.canvas.yview_scroll(-1, "units")
+        elif event.num == 5 or event.delta < 0:
+            self.canvas.yview_scroll(1, "units")
+
 
 class CollapsiblePane(ttk.Frame):
     """A collapsible pane widget with optional accordion behavior and auto-scroll."""
@@ -302,9 +381,6 @@ def update_summary(state) -> None:
     prompt_entry = prompts.get(prompt_key) or prompts.get("default") or next(iter(prompts.values()), {})
     prompt_text = f"Prompt: {prompt_entry.get('label', prompt_key)}"
     state["summary_prompt"].set_text(prompt_text)
-    summary_prompt_var = state.get("summary_prompt_var")
-    if summary_prompt_var is not None:
-        summary_prompt_var.set(prompt_text)
 
     # Update output summary
     destination = state["output_folder_option"].get()
@@ -315,9 +391,6 @@ def update_summary(state) -> None:
         output_text = f"Output: {destination}"
 
     state["summary_output"].set_text(output_text)
-    summary_output_var = state.get("summary_output_var")
-    if summary_output_var is not None:
-        summary_output_var.set(output_text)
 
     # Trigger scroll check after updating summaries
     if "_update_summary_scrolling" in state and "summary_container" in state:
@@ -815,8 +888,11 @@ class Tooltip:
         self.tooltip_window = None
         self.widget.bind("<Enter>", self.show_tooltip)
         self.widget.bind("<Leave>", self.hide_tooltip)
+        self.widget.bind("<Destroy>", self.hide_tooltip)
 
     def show_tooltip(self, event=None):
+        if not self.widget.winfo_exists():
+            return
         x, y, _, _ = self.widget.bbox("insert")
         x += self.widget.winfo_rootx() + 25
         y += self.widget.winfo_rooty() + 25

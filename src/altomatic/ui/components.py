@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+import threading
 from tkinter import ttk
 
 from ..models import (
@@ -148,6 +149,7 @@ def build_ui(root, user_config):
         "status_var": tk.StringVar(value="Ready"),
         "image_count": tk.StringVar(value=""),
         "total_tokens": tk.IntVar(value=0),
+        "token_lock": threading.Lock(),
         "logs": [],
         "prompts": prompts_data,
         "prompt_names": prompt_names,

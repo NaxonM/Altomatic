@@ -6,6 +6,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any, Iterable
 
 import requests
@@ -15,6 +16,7 @@ from ..utils import configure_global_proxy, get_requests_proxies
 CATALOG_URL = "https://openrouter.ai/api/v1/models"
 CATALOG_FILENAME = "openrouter_models.json"
 CACHE_TTL_SECONDS = 24 * 60 * 60  # refresh once per day by default
+_CATALOG_LOCK = Lock()
 
 
 @dataclass
@@ -161,14 +163,15 @@ def refresh_catalog() -> dict[str, dict[str, Any]]:
 
 
 def load_catalog(force_refresh: bool = False) -> dict[str, dict[str, Any]]:
-    path = _catalog_path()
-    catalog = _load_catalog_file(path)
-    if force_refresh or catalog is None or _is_stale(catalog):
-        try:
-            return refresh_catalog()
-        except Exception:
-            if catalog is None:
-                raise
-    if catalog is None:
-        return {}
-    return _deserialize(catalog)
+    with _CATALOG_LOCK:
+        path = _catalog_path()
+        catalog = _load_catalog_file(path)
+        if force_refresh or catalog is None or _is_stale(catalog):
+            try:
+                return refresh_catalog()
+            except Exception:
+                if catalog is None:
+                    raise
+        if catalog is None:
+            return {}
+        return _deserialize(catalog)

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from threading import RLock
 from typing import Any
 
 from .services.openrouter_catalog import load_catalog, refresh_catalog
 
+_MODELS_LOCK = RLock()
 DEFAULT_PROVIDER = "openai"
 DEFAULT_OPENROUTER_FALLBACK = "mistralai/mistral-small-3.2-24b-instruct:free"
 
@@ -59,60 +61,54 @@ _OPENROUTER_MODELS_CACHE: dict[str, dict[str, float | str]] | None = None
 
 
 def _build_openrouter_models(force_refresh: bool = False) -> dict[str, dict[str, float | str]]:
-    global _OPENROUTER_MODELS_CACHE
-    if _OPENROUTER_MODELS_CACHE is not None and not force_refresh:
-        return _OPENROUTER_MODELS_CACHE
+    with _MODELS_LOCK:
+        global _OPENROUTER_MODELS_CACHE
+        if _OPENROUTER_MODELS_CACHE is not None and not force_refresh:
+            return _OPENROUTER_MODELS_CACHE
 
-    catalog: dict[str, Any]
-    try:
-        catalog = load_catalog(force_refresh=force_refresh)
-    except Exception:
-        catalog = {}
+        catalog: dict[str, Any]
+        try:
+            catalog = load_catalog(force_refresh=force_refresh)
+        except (IOError, ValueError):
+            catalog = {}
 
-    if not catalog:
-        models = {model_id: dict(details) for model_id, details in _FALLBACK_OPENROUTER_MODELS.items()}
-    else:
-        models = {}
-        for model_id, entry in catalog.items():
-            models[model_id] = {
+        if not catalog:
+            models = {model_id: dict(details) for model_id, details in _FALLBACK_OPENROUTER_MODELS.items()}
+        else:
+            models = {}
+            for model_id, entry in catalog.items():
+                models[model_id] = {
+                    "label": entry.get("label", model_id),
+                    "input_price": float(entry.get("input_price", 0.0) or 0.0),
+                    "output_price": float(entry.get("output_price", 0.0) or 0.0),
+                    "vendor": entry.get("vendor"),
+                }
+
+        _OPENROUTER_MODELS_CACHE = models
+        return models
+
+
+def refresh_openrouter_models() -> dict[str, dict[str, float | str]]:
+    """Force-refresh the OpenRouter catalog and update the in-memory cache."""
+    with _MODELS_LOCK:
+        global _OPENROUTER_MODELS_CACHE
+        try:
+            refreshed = refresh_catalog()
+        except Exception:
+            return _build_openrouter_models(force_refresh=False)
+
+        _OPENROUTER_MODELS_CACHE = {
+            model_id: {
                 "label": entry.get("label", model_id),
                 "input_price": float(entry.get("input_price", 0.0) or 0.0),
                 "output_price": float(entry.get("output_price", 0.0) or 0.0),
                 "vendor": entry.get("vendor"),
             }
-
-    _OPENROUTER_MODELS_CACHE = models
-    return models
-
-
-PROVIDER_MODELS: dict[str, dict[str, dict[str, float | str]]] = {
-    "openai": _OPENAI_MODELS,
-    "openrouter": _build_openrouter_models(),
-}
-
-
-def refresh_openrouter_models() -> dict[str, dict[str, float | str]]:
-    """Force-refresh the OpenRouter catalog and update the in-memory cache."""
-
-    global _OPENROUTER_MODELS_CACHE
-    try:
-        refreshed = refresh_catalog()
-    except Exception:
-        # If refresh fails, fall back to existing cache or defaults without raising.
-        return _build_openrouter_models(force_refresh=False)
-
-    _OPENROUTER_MODELS_CACHE = {
-        model_id: {
-            "label": entry.get("label", model_id),
-            "input_price": float(entry.get("input_price", 0.0) or 0.0),
-            "output_price": float(entry.get("output_price", 0.0) or 0.0),
-            "vendor": entry.get("vendor"),
+            for model_id, entry in refreshed.items()
         }
-        for model_id, entry in refreshed.items()
-    }
-    PROVIDER_MODELS["openrouter"] = _OPENROUTER_MODELS_CACHE
-    DEFAULT_MODELS["openrouter"] = _select_default_model("openrouter")
-    return _OPENROUTER_MODELS_CACHE
+        PROVIDER_MODELS["openrouter"] = _OPENROUTER_MODELS_CACHE
+        DEFAULT_MODELS["openrouter"] = _select_default_model("openrouter")
+        return _OPENROUTER_MODELS_CACHE
 
 
 def _select_default_model(provider: str) -> str:
@@ -125,9 +121,11 @@ def _select_default_model(provider: str) -> str:
 
 
 def get_models_for_provider(provider: str) -> dict[str, dict[str, float | str]]:
+    if provider == "openai":
+        return _OPENAI_MODELS
     if provider == "openrouter":
         return _build_openrouter_models()
-    return PROVIDER_MODELS.get(provider, _OPENAI_MODELS)
+    return {}
 
 
 def get_provider_label(provider: str) -> str:
@@ -171,6 +169,13 @@ def format_pricing(provider: str, model_id: str) -> str:
 
     return f"Input: ${prompt_cost:.2f} / 1M tokens | " f"Output: ${completion_cost:.2f} / 1M tokens"
 
+
+# --- Module-level constants initialized below ---
+
+PROVIDER_MODELS: dict[str, dict[str, dict[str, float | str]]] = {
+    "openai": _OPENAI_MODELS,
+    "openrouter": _build_openrouter_models(),
+}
 
 DEFAULT_MODELS: dict[str, str] = {
     "openai": "gpt-5-nano",

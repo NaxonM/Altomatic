@@ -204,21 +204,27 @@ def get_all_images(folder: str, recursive: bool) -> list[str]:
     return images
 
 
-def get_output_folder(state) -> str:
-    preset = state["output_folder_option"].get()
-    input_path = state["input_path"].get()
-    input_type = state["input_type"].get()
+def get_output_folder(state: dict[str, Any]) -> str:
+    preset_var = state.get("output_folder_option")
+    preset = preset_var.get() if preset_var else "Same as input"
+
+    input_path_var = state.get("input_path")
+    input_path = input_path_var.get() if input_path_var else ""
+
+    input_type_var = state.get("input_type")
+    input_type = input_type_var.get() if input_type_var else "File"
 
     if preset == "Same as input":
         if input_type == "File":
-            return os.path.dirname(input_path)
-        return input_path
+            return os.path.dirname(input_path) if input_path else os.getcwd()
+        return input_path if input_path else os.getcwd()
     if preset == "Desktop":
         return os.path.join(os.path.expanduser("~"), "Desktop")
     if preset == "Pictures":
         return os.path.join(os.path.expanduser("~"), "Pictures")
     if preset == "Custom":
-        return state["custom_output_path"].get()
+        custom_path_var = state.get("custom_output_path")
+        return custom_path_var.get() if custom_path_var else os.getcwd()
     return os.getcwd()
 
 
@@ -267,11 +273,14 @@ def find_tesseract_executable(preferred_path: str = "") -> str | None:
     return None
 
 
+from ..services.providers.exceptions import OCRError
+
+
 def extract_text_from_image(image_path: str, tesseract_path: str = "", lang: str = "eng") -> str:
     try:
         import pytesseract
-    except Exception as exc:
-        return f"⚠️ OCR failed: {exc}"
+    except ImportError as exc:
+        raise OCRError("Pytesseract library not found. Please install it with 'pip install pytesseract'.") from exc
 
     not_found_error = getattr(pytesseract, "TesseractNotFoundError", RuntimeError)
 
@@ -280,11 +289,12 @@ def extract_text_from_image(image_path: str, tesseract_path: str = "", lang: str
         if resolved_path:
             pytesseract.pytesseract.tesseract_cmd = resolved_path
         elif tesseract_path:
-            return "⚠️ OCR unavailable: Tesseract executable not found."
+            raise OCRError("Tesseract executable not found at the specified path.")
+
         with Image.open(image_path) as image:
             text = pytesseract.image_to_string(image, lang=lang)
         return text.strip()
-    except not_found_error:
-        return "⚠️ OCR unavailable: Tesseract executable not found. Configure the path in Settings."
+    except not_found_error as exc:
+        raise OCRError("Tesseract not found. Configure the path in Settings or install it.") from exc
     except Exception as exc:
-        return f"⚠️ OCR failed: {exc}"
+        raise OCRError(f"An unexpected error occurred during OCR: {exc}") from exc

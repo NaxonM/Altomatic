@@ -6,6 +6,7 @@ from tkinter import ttk
 from ...models import AVAILABLE_PROVIDERS, get_models_for_provider, get_provider_label, refresh_openrouter_models, get_default_model, format_pricing
 from ..ui_toolkit import (
     CollapsiblePane,
+    ScrollableFrame,
     _create_info_label,
     set_status,
     update_model_pricing,
@@ -18,72 +19,7 @@ from ..ui_toolkit import (
 )
 from ..dialogs.prompt_editor import open_prompt_editor
 
-
-class ScrollableFrame(ttk.Frame):
-    """A scrollable frame container for dynamic content."""
-
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-        
-        # Create canvas and scrollbar with proper background
-        style = ttk.Style()
-        bg_color = style.lookup('TFrame', 'background')
-        self.canvas = tk.Canvas(self, highlightthickness=0, bg=bg_color)
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = ttk.Frame(self.canvas)
-
-        # Configure canvas scrolling with after_idle to prevent race conditions
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.after_idle(
-                lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-            )
-        )
-
-        # Create window in canvas
-        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-
-        # Configure canvas to resize with window
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-        
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
-        # Layout
-        self.canvas.grid(row=0, column=0, sticky="nsew")
-        self.scrollbar.grid(row=0, column=1, sticky="ns")
-        
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-
-        # Enable mousewheel scrolling
-        self.scrollable_frame.bind("<Enter>", self._bind_mousewheel)
-        self.scrollable_frame.bind("<Leave>", self._unbind_mousewheel)
-
-    def _on_canvas_configure(self, event):
-        """Adjust the scrollable frame width to match canvas width."""
-        canvas_width = event.width
-        self.canvas.itemconfig(self.canvas_frame, width=canvas_width)
-
-    def _bind_mousewheel(self, event):
-        """Bind mousewheel to canvas scrolling."""
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-4>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-5>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, event):
-        """Unbind mousewheel from canvas scrolling."""
-        self.canvas.unbind_all("<MouseWheel>")
-        self.canvas.unbind_all("<Button-4>")
-        self.canvas.unbind_all("<Button-5>")
-
-    def _on_mousewheel(self, event):
-        """Handle mousewheel scrolling."""
-        if event.num == 4 or event.delta > 0:
-            self.canvas.yview_scroll(-1, "units")
-        elif event.num == 5 or event.delta < 0:
-            self.canvas.yview_scroll(1, "units")
-
-def build_tab_configuration(frame, state) -> None:
+def build_tab_configuration(frame: ttk.Frame, state: dict[str, Any]) -> None:
     """Build the consolidated configuration tab."""
     frame.columnconfigure(0, weight=1)
     frame.rowconfigure(0, weight=1)
@@ -111,7 +47,7 @@ def build_tab_configuration(frame, state) -> None:
     _build_prompt_management_section(pane2.frame, state)
 
 
-def _build_prompt_management_section(parent, state) -> None:
+def _build_prompt_management_section(parent: ttk.Frame, state: dict[str, Any]) -> None:
     """Build the prompt management section."""
     parent.columnconfigure(0, weight=1)
     prompt_card = ttk.Frame(parent, style="Card.TFrame", padding=16)
@@ -128,12 +64,18 @@ def _build_prompt_management_section(parent, state) -> None:
         row=0, column=0, sticky="w", padx=(0, 8)
     )
 
-    prompt_labels = {v["label"]: k for k, v in state["prompts"].items()}
-    prompt_label_var = tk.StringVar(value=state["prompts"][state["prompt_key"].get()]["label"])
+    prompts = state.get("prompts", {})
+    prompt_labels = {v.get("label", k): k for k, v in prompts.items()}
+
+    prompt_key_var = state.get("prompt_key")
+    current_key = prompt_key_var.get() if prompt_key_var else "default"
+    current_label = prompts.get(current_key, {}).get("label", current_key)
+    prompt_label_var = tk.StringVar(value=current_label)
 
     def on_prompt_select(label):
-        key = prompt_labels[label]
-        state["prompt_key"].set(key)
+        key = prompt_labels.get(label, "default")
+        if prompt_key_var:
+            prompt_key_var.set(key)
         prompt_label_var.set(label)
 
     prompt_menu = ttk.OptionMenu(
@@ -183,7 +125,7 @@ def _build_prompt_management_section(parent, state) -> None:
     refresh_prompt_choices(state)
 
 
-def _build_llm_provider_section(parent, state) -> None:
+def _build_llm_provider_section(parent: ttk.Frame, state: dict[str, Any]) -> None:
     """Build the redesigned LLM provider section with original show/hide behavior."""
     parent.columnconfigure(0, weight=1)
 
@@ -202,15 +144,22 @@ def _build_llm_provider_section(parent, state) -> None:
     )
 
     provider_labels = {get_provider_label(pid): pid for pid in AVAILABLE_PROVIDERS}
-    provider_label_var = tk.StringVar(value=get_provider_label(state["llm_provider"].get()))
+    llm_provider_var = state.get("llm_provider")
+    current_provider = llm_provider_var.get() if llm_provider_var else "default"
+    provider_label_var = tk.StringVar(value=get_provider_label(current_provider))
     state["provider_label_var"] = provider_label_var
+
+    def on_provider_select(label):
+        provider_key = provider_labels.get(label, "default")
+        if llm_provider_var:
+            llm_provider_var.set(provider_key)
 
     provider_menu = ttk.OptionMenu(
         provider_select_frame,
         provider_label_var,
         provider_label_var.get(),
         *provider_labels.keys(),
-        command=lambda label: state["llm_provider"].set(provider_labels[label]),
+        command=on_provider_select,
     )
     provider_menu.grid(row=0, column=1, sticky="w")
     state["provider_option_menu"] = provider_menu["menu"]
@@ -334,7 +283,7 @@ def _build_llm_provider_section(parent, state) -> None:
     initialize_provider_ui(state)
 
 
-def _build_compact_openai_config(parent, state) -> None:
+def _build_compact_openai_config(parent: ttk.Frame, state: dict[str, Any]) -> None:
     """Build compact OpenAI configuration section."""
     parent.columnconfigure(1, weight=1)
 
@@ -421,7 +370,7 @@ def _build_compact_openai_config(parent, state) -> None:
     state["openai_status_var"] = openai_status_var
 
 
-def _build_compact_openrouter_config(parent, state) -> None:
+def _build_compact_openrouter_config(parent: ttk.Frame, state: dict[str, Any]) -> None:
     """Build compact OpenRouter configuration section."""
     parent.columnconfigure(1, weight=1)
 

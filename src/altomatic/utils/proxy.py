@@ -145,11 +145,10 @@ def configure_global_proxy(
     force: bool = False,
 ) -> dict[str, str]:
     """Populate environment variables based on preferences and return the mapping."""
-
-    effective_enabled, effective_override = _effective_preferences(enabled, override)
-    proxies = _resolve_proxies(effective_enabled, effective_override)
-
     with _PROXY_LOCK:
+        effective_enabled, effective_override = _effective_preferences(enabled, override)
+        proxies = _resolve_proxies(effective_enabled, effective_override)
+
         if not proxies:
             _restore_all()
             return {}

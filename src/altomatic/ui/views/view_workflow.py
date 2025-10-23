@@ -9,87 +9,13 @@ from ..ui_toolkit import (
     _select_output_folder,
     CollapsiblePane,
     PlaceholderEntry,
+    ScrollableFrame,
     create_tooltip,
 )
 from .._shared import _create_info_label, _create_section_header
 
 
-class ScrollableFrame(ttk.Frame):
-    """A scrollable frame container for dynamic content."""
-
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-        
-        # Create canvas and scrollbar with proper background
-        style = ttk.Style()
-        bg_color = style.lookup('TFrame', 'background')
-        self.canvas = tk.Canvas(self, highlightthickness=0, bg=bg_color)
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = ttk.Frame(self.canvas)
-
-        # Configure canvas scrolling with after_idle to prevent race conditions
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.after_idle(
-                lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-            )
-        )
-
-        # Create window in canvas
-        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-
-        # Configure canvas to resize with window
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-        
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
-
-
-        # Create window in canvas
-        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-
-        # Configure canvas to resize with window
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-        
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
-        # Layout
-        self.canvas.grid(row=0, column=0, sticky="nsew")
-        self.scrollbar.grid(row=0, column=1, sticky="ns")
-        
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-
-        # Enable mousewheel scrolling
-        self.scrollable_frame.bind("<Enter>", self._bind_mousewheel)
-        self.scrollable_frame.bind("<Leave>", self._unbind_mousewheel)
-
-    def _on_canvas_configure(self, event):
-        """Adjust the scrollable frame width to match canvas width."""
-        canvas_width = event.width
-        self.canvas.itemconfig(self.canvas_frame, width=canvas_width)
-
-    def _bind_mousewheel(self, event):
-        """Bind mousewheel to canvas scrolling."""
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-4>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-5>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, event):
-        """Unbind mousewheel from canvas scrolling."""
-        self.canvas.unbind_all("<MouseWheel>")
-        self.canvas.unbind_all("<Button-4>")
-        self.canvas.unbind_all("<Button-5>")
-
-    def _on_mousewheel(self, event):
-        """Handle mousewheel scrolling."""
-        if event.num == 4 or event.delta > 0:
-            self.canvas.yview_scroll(-1, "units")
-        elif event.num == 5 or event.delta < 0:
-            self.canvas.yview_scroll(1, "units")
-
-
-def build_tab_workflow(frame, state) -> None:
+def build_tab_workflow(frame: ttk.Frame, state: dict[str, Any]) -> None:
     """Build the workflow tab with scrollable, responsive layout."""
     # Configure main frame
     frame.columnconfigure(0, weight=1)
@@ -187,21 +113,25 @@ def build_tab_workflow(frame, state) -> None:
         
         if _update_timer:
             context_entry.after_cancel(_update_timer)
-        
+
         def do_update():
+            if not context_entry.winfo_exists():
+                return
             content = context_entry.get("1.0", "end-1c")
             if content != placeholder or context_entry.cget("foreground") != "grey":
                 actual_content = "" if content == placeholder else content
                 char_count_var.set(f"{len(actual_content)} characters")
-                state["context_text"].set(actual_content)
-        
+                if "context_text" in state:
+                    state["context_text"].set(actual_content)
+
         _update_timer = context_entry.after(150, do_update)
 
     context_entry.bind("<KeyRelease>", update_char_count)
     state["context_widget"] = context_entry
 
     # Initialize with saved context
-    if initial_text := state["context_text"].get():
+    context_text_var = state.get("context_text")
+    if context_text_var and (initial_text := context_text_var.get()):
         context_entry.delete("1.0", "end")
         context_entry.insert("1.0", initial_text)
         context_entry.config(foreground="black")

@@ -63,11 +63,16 @@ def load_prompts() -> Dict[str, dict]:
         if not isinstance(data, dict):
             raise ValueError("Invalid prompts structure")
         return data
-    except Exception:
+    except (IOError, json.JSONDecodeError, ValueError):
         return DEFAULT_PROMPTS.copy()
 
 
 def save_prompts(prompts: Dict[str, dict]) -> None:
+    # Basic validation to ensure prompts have the correct structure
+    for key, value in prompts.items():
+        if not isinstance(value, dict) or "label" not in value or "template" not in value:
+            raise ValueError(f"Invalid prompt structure for key: {key}")
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PROMPTS_PATH.write_text(
         json.dumps(prompts, indent=2, ensure_ascii=False),
@@ -77,11 +82,11 @@ def save_prompts(prompts: Dict[str, dict]) -> None:
 
 def get_prompt_template(key: str) -> str:
     prompts = load_prompts()
-    entry = prompts.get(key) or prompts.get("default") or next(iter(prompts.values()))
+    entry = prompts.get(key) or prompts.get("default") or next(iter(prompts.values()), {})
     return entry.get("template", "")
 
 
 def get_prompt_label(key: str) -> str:
     prompts = load_prompts()
-    entry = prompts.get(key) or prompts.get("default") or next(iter(prompts.values()))
+    entry = prompts.get(key) or prompts.get("default") or next(iter(prompts.values()), {})
     return entry.get("label", key)

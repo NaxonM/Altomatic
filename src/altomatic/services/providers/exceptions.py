@@ -23,3 +23,9 @@ class NetworkError(ProviderError):
     """Raised for network-related issues, such as connection errors or timeouts."""
 
     pass
+
+
+class OCRError(ProviderError):
+    """Raised for errors during the OCR process."""
+
+    pass

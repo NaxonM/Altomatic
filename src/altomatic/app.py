@@ -88,22 +88,30 @@ def run() -> None:
 
     def start_image_processing():
         # Pre-flight checks
-        provider = state["llm_provider"].get()
-        api_key_var = f"{provider}_api_key"
-        if not state[api_key_var].get().strip():
+        provider_var = state.get("llm_provider")
+        provider = provider_var.get() if provider_var else "default"
+        api_key_var_name = f"{provider}_api_key"
+        api_key_var = state.get(api_key_var_name)
+
+        if not api_key_var or not api_key_var.get().strip():
             messagebox.showerror(
                 "API Key Missing",
                 f"The API key for {provider} is not set. Please add it in the 'Prompts & Model' tab.",
             )
-            # Switch to the correct tab to guide the user
-            if "notebook" in state:
-                state["notebook"].select(1)  # 1 is the index for "Prompts & Model" tab
+            notebook = state.get("notebook")
+            if notebook:
+                notebook.select(1)  # 1 is the index for "Prompts & Model" tab
             return
 
         # Switch to log tab and start processing
-        if "notebook" in state:
-            state["notebook"].select(2)  # 2 is the index for "Activity Log" tab
-        state["process_button"].config(state="disabled")
+        notebook = state.get("notebook")
+        if notebook:
+            notebook.select(2)  # 2 is the index for "Activity Log" tab
+
+        process_button = state.get("process_button")
+        if process_button:
+            process_button.config(state="disabled")
+
         set_status(state, "Starting...")
         thread = threading.Thread(
             target=process_images,
@@ -121,30 +129,35 @@ def run() -> None:
             if msg_type == "status":
                 set_status(state, value)
             elif msg_type == "progress":
-                if "progress_bar" in state:
-                    state["progress_bar"]["value"] = value
+                progress_bar = state.get("progress_bar")
+                if progress_bar:
+                    progress_bar["value"] = value
             elif msg_type == "progress_max":
-                if "progress_bar" in state:
-                    state["progress_bar"]["maximum"] = value
+                progress_bar = state.get("progress_bar")
+                if progress_bar:
+                    progress_bar["maximum"] = value
             elif msg_type == "log":
                 append_monitor_colored(state, value, message.get("level", "info"))
-            elif msg_type == "done":
-                state["process_button"].config(state="normal")
-                set_status(state, "✅ Done!")
-                messagebox.showinfo("Done", value)
-            elif msg_type == "done_with_results":
-                state["process_button"].config(state="normal")
-                set_status(state, "✅ Done!")
-                create_results_window(state, message.get("results"))
-            elif msg_type == "error":
-                state["process_button"].config(state="normal")
-                messagebox.showerror(message.get("title", "Error"), value)
+            else:
+                process_button = state.get("process_button")
+                if process_button:
+                    process_button.config(state="normal")
+                if msg_type == "done":
+                    set_status(state, "✅ Done!")
+                    messagebox.showinfo("Done", value)
+                elif msg_type == "done_with_results":
+                    set_status(state, "✅ Done!")
+                    create_results_window(state, message.get("results"))
+                elif msg_type == "error":
+                    messagebox.showerror(message.get("title", "Error"), value)
         except queue.Empty:
             pass
         finally:
             root.after(100, process_queue)
 
-    state["process_button"].config(command=start_image_processing)
+    process_button = state.get("process_button")
+    if process_button:
+        process_button.config(command=start_image_processing)
     configure_drag_and_drop(root, state)
 
     def on_reset_config() -> None:

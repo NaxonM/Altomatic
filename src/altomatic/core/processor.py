@@ -22,19 +22,24 @@ from ..utils.images import (
 )
 
 
-def process_images(state) -> None:
+def process_images(state: Dict[str, Any]) -> None:
     """The core image processing pipeline."""
-    ui_queue: Queue = state["ui_queue"]
+    ui_queue: Queue | None = state.get("ui_queue")
+    if not ui_queue:
+        return
+
     results: List[Dict[str, Any]] = []
 
     try:
         provider_var = state.get("llm_provider")
-        provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
+        provider = provider_var.get() if provider_var else DEFAULT_PROVIDER
         if provider not in {"openai", "openrouter"}:
             provider = DEFAULT_PROVIDER
 
         api_key_field = "openrouter_api_key" if provider == "openrouter" else "openai_api_key"
-        api_key = state[api_key_field].get().strip() if api_key_field in state else ""
+        api_key_var = state.get(api_key_field)
+        api_key = api_key_var.get().strip() if api_key_var else ""
+
         if not api_key:
             ui_queue.put(
                 {
@@ -45,8 +50,9 @@ def process_images(state) -> None:
             )
             return
 
-        input_path = state["input_path"].get()
-        if not os.path.exists(input_path):
+        input_path_var = state.get("input_path")
+        input_path = input_path_var.get() if input_path_var else ""
+        if not input_path or not os.path.exists(input_path):
             ui_queue.put({"type": "error", "title": "Invalid Input", "value": "Input path does not exist."})
             return
 
@@ -61,10 +67,13 @@ def process_images(state) -> None:
             )
             return
 
-        if state["input_type"].get() == "File":
+        input_type_var = state.get("input_type")
+        input_type = input_type_var.get() if input_type_var else "File"
+        if input_type == "File":
             images = [input_path]
         else:
-            recursive = state["include_subdirectories"].get()
+            recursive_var = state.get("include_subdirectories")
+            recursive = recursive_var.get() if recursive_var else False
             images = get_all_images(input_path, recursive)
 
         if not images:
@@ -72,7 +81,9 @@ def process_images(state) -> None:
             return
 
         ui_queue.put({"type": "log", "value": f"Found {len(images)} images to process.", "level": "info"})
-        state["total_tokens"].set(0)
+        total_tokens_var = state.get("total_tokens")
+        if total_tokens_var:
+            total_tokens_var.set(0)
 
         os.makedirs(base_output_folder, exist_ok=True)
 
@@ -108,12 +119,21 @@ def process_images(state) -> None:
                     ext = os.path.splitext(image_path)[1].lower()
                     new_name = f"{base_name}{ext}"
                     destination = os.path.join(renamed_folder, new_name)
-                    counter = 1
-                    while os.path.exists(destination):
-                        destination = os.path.join(renamed_folder, f"{base_name}-{counter}{ext}")
-                        counter += 1
 
-                    shutil.copy(image_path, destination)
+                    # Atomically create a unique filename to avoid TOCTOU race condition
+                    counter = 1
+                    while True:
+                        try:
+                            # Use exclusive mode 'x' to ensure file is new
+                            with open(destination, "xb") as f:
+                                with open(image_path, "rb") as src:
+                                    shutil.copyfileobj(src, f)
+                            break
+                        except FileExistsError:
+                            destination = os.path.join(renamed_folder, f"{base_name}-{counter}{ext}")
+                            counter += 1
+                        except OSError as e:
+                            raise APIError(f"Failed to save image: {e}") from e
 
                     final_name = os.path.basename(destination)
                     summary_file.write(f"[Original: {os.path.basename(image_path)}]\n")
