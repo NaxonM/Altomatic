@@ -56,15 +56,18 @@ def _set_titlebar_mode(widget: tk.Misc, palette: dict[str, str]) -> None:
             ctypes.byref(value),
             ctypes.sizeof(value),
         )
-        if hr != 0:
+    except (AttributeError, ctypes.ArgumentError, OSError):
+        return
+    if hr != 0:
+        try:
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1,
                 ctypes.byref(value),
                 ctypes.sizeof(value),
             )
-    except (AttributeError, ctypes.ArgumentError, OSError):
-        return
+        except (AttributeError, ctypes.ArgumentError, OSError):
+            pass
 
     if dark_mode:
         try:
@@ -83,7 +86,7 @@ def _set_titlebar_mode(widget: tk.Misc, palette: dict[str, str]) -> None:
                 ctypes.sizeof(ctypes.c_int),
             )
         except (AttributeError, ctypes.ArgumentError, OSError):
-            return
+            pass
 
 
 def _style_menu_widget(menu: tk.Menu, palette: dict[str, str]) -> None:
@@ -451,6 +454,15 @@ def _style_text_widgets(widget: tk.Widget, palette: dict[str, str]) -> None:
                 )
             except tk.TclError:
                 pass
+        elif isinstance(child, tk.Canvas):
+            try:
+                child.configure(
+                    background=palette["background"],
+                    highlightthickness=0,
+                    borderwidth=0,
+                )
+            except tk.TclError:
+                pass
         elif isinstance(child, ttk.Scrollbar):
             try:
                 orientation = child.cget("orient")
@@ -525,6 +537,24 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:  # pylint: disabl
         background=[("active", _blend(palette["surface"], palette["primary"], 0.1))],
     )
     style.configure(
+        "ChromeMenu.TButton",
+        background=palette["surface"],
+        foreground=palette["muted"],
+        padding=(10, 6),
+        font=font_button,
+        relief="flat",
+        borderwidth=0,
+    )
+    style.map(
+        "ChromeMenu.TButton",
+        foreground=[("active", palette["primary"]), ("pressed", palette["primary"])],
+        background=[
+            ("active", _blend(palette["surface"], palette["primary"], 0.1)),
+            ("pressed", _blend(palette["surface"], palette["primary"], 0.2)),
+            ("focus", _blend(palette["surface"], palette["primary"], 0.08)),
+        ],
+    )
+    style.configure(
         "Section.TLabelframe",
         background=palette["background"],
         foreground=palette["muted"],
@@ -571,9 +601,28 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:  # pylint: disabl
     )
     style.configure(
         "Status.TLabel",
-        background=palette["surface"],
+        background=palette["background"],
         font=font_small,
         foreground=palette["muted"],
+    )
+    chip_bg = palette["background"]
+    chip_border = palette["surface-2"]
+    chip_active = _blend(palette["background"], palette["primary"], 0.12)
+    style.configure(
+        "SummaryChip.TLabel",
+        background=chip_bg,
+        foreground=palette["primary"],
+        padding=(10, 4),
+        font=font_small,
+        relief="solid",
+        borderwidth=1,
+        bordercolor=chip_border,
+    )
+    style.map(
+        "SummaryChip.TLabel",
+        background=[("active", chip_active)],
+        foreground=[("active", palette["primary"])],
+        bordercolor=[("active", palette["primary"])],
     )
 
     field_border = palette["surface-2"]
@@ -688,11 +737,16 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:  # pylint: disabl
         padding=(18, 10),
         font=font_button,
         borderwidth=0,
+        focuscolor=palette["surface"],
+        lightcolor=palette["surface"],
+        darkcolor=palette["surface"],
+        bordercolor=palette["background"],
     )
     style.map(
         "TNotebook.Tab",
-        background=[("selected", palette["surface"])],
-        foreground=[("selected", palette["foreground"])],
+        background=[("selected", palette["surface"]), ("!selected", palette["background"])],
+        foreground=[("selected", palette["foreground"]), ("!selected", palette["muted"])],
+        bordercolor=[("selected", palette["surface"]), ("!selected", palette["background"])],
     )
 
     # Buttons
