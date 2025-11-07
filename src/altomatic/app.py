@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 from importlib import resources
@@ -12,7 +13,7 @@ from tkinterdnd2 import TkinterDnD
 from .config.manager import DEFAULT_CONFIG, load_config, reset_config, save_config
 from .core.processor import process_images
 from .ui.components import build_ui
-from .ui.ui_toolkit import append_monitor_colored, set_status
+from .ui.ui_toolkit import append_monitor_colored, set_status, open_folder_location, update_summary, refresh_recent_input_menu
 from .ui.dragdrop import configure_drag_and_drop
 from .ui.results import create_results_window
 from .ui.themes import apply_theme
@@ -128,6 +129,18 @@ def run() -> None:
                     state["progress_bar"]["maximum"] = value
             elif msg_type == "log":
                 append_monitor_colored(state, value, message.get("level", "info"))
+            elif msg_type == "clear_input":
+                state["input_path"].set("")
+                state["image_count"].set("")
+                entry = state.get("input_entry")
+                if entry is not None:
+                    try:
+                        entry.delete(0, "end")
+                        entry._add_placeholder()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                refresh_recent_input_menu(state)
+                update_summary(state)
             elif msg_type == "done":
                 state["process_button"].config(state="normal")
                 set_status(state, "✅ Done!")
@@ -136,6 +149,26 @@ def run() -> None:
                 state["process_button"].config(state="normal")
                 set_status(state, "✅ Done!")
                 create_results_window(state, message.get("results"))
+            elif msg_type == "open_folder":
+                open_folder_location(state, value)
+            elif msg_type == "retry_failed":
+                data = value if isinstance(value, dict) else {}
+                count = data.get("count", 0)
+                log_path = data.get("log_path")
+                prompt = (
+                    f"{count} image(s) still failed after an automatic retry.\n\n"
+                    "Open the failure log folder now?"
+                )
+                if messagebox.askyesno("Failed Images", prompt):
+                    target = log_path
+                    if target:
+                        open_folder_location(state, os.path.dirname(target))
+                else:
+                    append_monitor_colored(
+                        state,
+                        "User opted to review failed items later.",
+                        "warn",
+                    )
             elif msg_type == "error":
                 state["process_button"].config(state="normal")
                 messagebox.showerror(message.get("title", "Error"), value)

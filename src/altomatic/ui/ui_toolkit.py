@@ -1,38 +1,43 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import ttk, filedialog, messagebox
 import os
 import shutil
+import subprocess
+import sys
+from collections import Counter
+from datetime import datetime
 from importlib import resources
-import webbrowser
 
 try:
     import pyperclip
 except ModuleNotFoundError:
     pyperclip = None
 
-from ..config import open_config_folder, save_config
+from ..config import save_config
 from ..models import (
-    AVAILABLE_PROVIDERS,
     DEFAULT_MODEL,
-    DEFAULT_MODELS,
     DEFAULT_PROVIDER,
     format_pricing,
     get_default_model,
     get_models_for_provider,
     get_provider_label,
-    refresh_openrouter_models,
 )
-from ..prompts import get_prompt_template, load_prompts, save_prompts
+from ..prompts import load_prompts
 from ..utils import (
     configure_global_proxy,
-    detect_system_proxies,
     get_image_count_in_folder,
     get_requests_proxies,
     reload_system_proxies,
     set_proxy_preferences,
-    slugify,
 )
-from .themes import PALETTE, apply_theme, apply_theme_to_window
+from ..services.provider_health import check_openai_key, check_openrouter_key
+from ..services.providers.exceptions import APIError, AuthenticationError, NetworkError
+from .themes import apply_theme
+
+
+RECENT_INPUT_LIMIT = 5
+MAX_LOG_ENTRIES = 1000
+
 
 class AnimatedLabel(ttk.Label):
     """Label with animated scrolling for overflow text."""
@@ -71,43 +76,39 @@ class AnimatedLabel(ttk.Label):
         self.config(text=new_text)
         self.after(200, self.animate)
 
+
 class CollapsiblePane(ttk.Frame):
     """A collapsible pane widget with optional accordion behavior and auto-scroll."""
-    
+
     def __init__(self, parent, text, accordion_group=None, scroll_canvas=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.columnconfigure(0, weight=1)
-        
+
         self.scroll_canvas = scroll_canvas
         self.is_collapsed = True
         self.text = text
         self.accordion_group = accordion_group
-        
+
         # Header
         self.header_frame = ttk.Frame(self, style="Card.TFrame")
         self.header_frame.grid(row=0, column=0, sticky="ew")
         self.header_frame.columnconfigure(0, weight=1)
-        
+
         self.header_label = ttk.Label(self.header_frame, text=self.text, style="Header.TLabel")
         self.header_label.grid(row=0, column=0, sticky="w", padx=10, pady=5)
-        
-        self.toggle_button = ttk.Button(
-            self.header_frame, 
-            text="▶", 
-            command=self.toggle, 
-            width=4
-        )
+
+        self.toggle_button = ttk.Button(self.header_frame, text="▶", command=self.toggle, width=4)
         self.toggle_button.grid(row=0, column=1, sticky="e", padx=5)
-        
+
         # Content frame
         self.frame = ttk.Frame(self, style="Card.TFrame", padding=(16, 0, 16, 16))
         self.frame.rowconfigure(0, weight=1)
         self.frame.columnconfigure(0, weight=1)
-        
+
         # Bind click events
         self.bind("<Button-1>", self.toggle)
         self.header_label.bind("<Button-1>", self.toggle)
-    
+
     def toggle(self, event=None):
         """Toggle the pane open/closed with auto-scroll support."""
         if self.is_collapsed:
@@ -116,52 +117,52 @@ class CollapsiblePane(ttk.Frame):
                 for pane in self.accordion_group:
                     if pane != self and not pane.is_collapsed:
                         pane.collapse()
-            
+
             # Expand this pane
             self.frame.grid(row=1, column=0, sticky="nsew")
             self.toggle_button.configure(text="▼")
             self.is_collapsed = False
-            
+
             # Update scroll region and auto-scroll to make content visible
             if self.scroll_canvas:
                 self._auto_scroll_to_visible()
         else:
             self.collapse()
-    
+
     def _auto_scroll_to_visible(self):
         """Automatically scroll the canvas to make the expanded pane fully visible."""
         if not self.scroll_canvas:
             return
-        
+
         # Update the canvas to get accurate measurements
         self.scroll_canvas.update_idletasks()
         self.update_idletasks()
-        
+
         # Update scroll region first
         self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
-        
+
         # Get the bounding box of this pane within the canvas
         try:
             # Get the position of this widget relative to the scrollable frame
             pane_y = self.winfo_y()
             pane_height = self.winfo_height()
             pane_bottom = pane_y + pane_height
-            
+
             # Get canvas viewport dimensions
             canvas_height = self.scroll_canvas.winfo_height()
-            
+
             # Get current scroll position
             scroll_region = self.scroll_canvas.cget("scrollregion").split()
             if len(scroll_region) == 4:
                 total_height = float(scroll_region[3])
             else:
                 return
-            
+
             # Get current view position (top and bottom fractions)
             current_view = self.scroll_canvas.yview()
             view_top = current_view[0] * total_height
             view_bottom = current_view[1] * total_height
-            
+
             # Calculate if we need to scroll
             if pane_bottom > view_bottom:
                 # Pane bottom is below visible area - scroll down
@@ -173,21 +174,21 @@ class CollapsiblePane(ttk.Frame):
                 target_position = pane_y / total_height
                 target_position = max(0.0, min(1.0, target_position))
                 self.scroll_canvas.yview_moveto(target_position)
-                
+
         except Exception:
             pass
-    
+
     def collapse(self):
         """Collapse this pane."""
         self.frame.grid_forget()
         self.toggle_button.configure(text="▶")
         self.is_collapsed = True
-        
+
         # Update scroll region when collapsing
         if self.scroll_canvas:
             self.scroll_canvas.update_idletasks()
             self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
-    
+
     def expand(self):
         """Expand this pane (collapsing others if in accordion group)."""
         if self.is_collapsed:
@@ -217,9 +218,7 @@ def _scaled_geometry(widget: tk.Misc, base_width: int, base_height: int) -> str:
 def _apply_window_icon(window: tk.Misc) -> None:
     """Apply application icon to window."""
     try:
-        with resources.as_file(
-            resources.files("altomatic.resources") / "altomatic_icon.ico"
-        ) as icon_path:
+        with resources.as_file(resources.files("altomatic.resources") / "altomatic_icon.ico") as icon_path:
             window.iconbitmap(default=str(icon_path))
     except Exception:
         pass
@@ -232,13 +231,8 @@ def _create_section_header(parent, text: str, style="Header.TLabel") -> ttk.Labe
 
 def _create_info_label(parent, text: str, wraplength=500) -> ttk.Label:
     """Create a consistent info/help label."""
-    return ttk.Label(
-        parent,
-        text=text,
-        style="Small.TLabel",
-        wraplength=wraplength,
-        justify="left"
-    )
+    return ttk.Label(parent, text=text, style="Small.TLabel", wraplength=wraplength, justify="left")
+
 
 def update_token_label(state) -> None:
     """Update the token usage display."""
@@ -282,31 +276,39 @@ def _format_proxy_mapping(mapping: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+def _build_prompt_display_map(prompts: dict[str, dict]) -> dict[str, str]:
+    """Return display labels that remain unique even when prompt labels repeat."""
+    labels = [entry.get("label") or key for key, entry in prompts.items()]
+    counts = Counter(labels)
+    display_map: dict[str, str] = {}
+    for key, entry in prompts.items():
+        label = entry.get("label") or key
+        display_map[key] = f"{label} — {key}" if counts[label] > 1 else label
+    return display_map
+
+
 def update_summary(state) -> None:
-    """Update the summary bar with current selections."""
-    if "summary_model" not in state:
+    """Update the summary chips with current selections."""
+    chip_model_var = state.get("summary_chip_model_var")
+    chip_prompt_var = state.get("summary_chip_prompt_var")
+    chip_output_var = state.get("summary_chip_output_var")
+    chip_alttext_var = state.get("summary_chip_alttext_var")
+    if not all([chip_model_var, chip_prompt_var, chip_output_var, chip_alttext_var]):
         return
 
-    # Update model summary
     provider_var = state.get("llm_provider")
     provider = provider_var.get() if provider_var is not None else DEFAULT_PROVIDER
     model_var = state.get("llm_model")
     model_id = model_var.get() if model_var is not None else DEFAULT_MODEL
     models = get_models_for_provider(provider)
     model_label = models.get(model_id, {}).get("label", model_id)
-    state["summary_model"].set_text(f"Model: {get_provider_label(provider)} • {model_label}")
+    model_text = f"Model: {get_provider_label(provider)} • {model_label}"
 
-    # Update prompt summary
     prompts = state.get("prompts") or load_prompts()
     prompt_key = state["prompt_key"].get()
     prompt_entry = prompts.get(prompt_key) or prompts.get("default") or next(iter(prompts.values()), {})
     prompt_text = f"Prompt: {prompt_entry.get('label', prompt_key)}"
-    state["summary_prompt"].set_text(prompt_text)
-    summary_prompt_var = state.get("summary_prompt_var")
-    if summary_prompt_var is not None:
-        summary_prompt_var.set(prompt_text)
 
-    # Update output summary
     destination = state["output_folder_option"].get()
     if destination == "Custom":
         path = state["custom_output_path"].get().strip() or "(not set)"
@@ -314,20 +316,237 @@ def update_summary(state) -> None:
     else:
         output_text = f"Output: {destination}"
 
-    state["summary_output"].set_text(output_text)
-    summary_output_var = state.get("summary_output_var")
-    if summary_output_var is not None:
-        summary_output_var.set(output_text)
+    summary_chip_model_var = state["summary_chip_model_var"]
+    summary_chip_prompt_var = state["summary_chip_prompt_var"]
+    summary_chip_output_var = state["summary_chip_output_var"]
+    summary_chip_alttext_var = state["summary_chip_alttext_var"]
 
-    # Trigger scroll check after updating summaries
-    if "_update_summary_scrolling" in state and "summary_container" in state:
-        state["summary_container"].after(50, state["_update_summary_scrolling"])
+    summary_chip_model_var.set(model_text.replace("Model: ", ""))
+    summary_chip_prompt_var.set(prompt_text.replace("Prompt: ", ""))
+    summary_chip_output_var.set(output_text.replace("Output: ", ""))
+    alttext_value = state.get("alttext_language").get() if state.get("alttext_language") else "English"
+    alttext_text = f"Alt text: {alttext_value}"
+    summary_chip_alttext_var.set(alttext_text.replace("Alt text: ", ""))
+
+    # Update tooltips with richer detail
+    model_tooltip = state.get("summary_chip_model_tooltip")
+    if model_tooltip is not None:
+        pricing = format_pricing(provider, model_id)
+        tooltip_lines = [model_label]
+        tooltip_lines.append(f"Provider: {get_provider_label(provider)}")
+        tooltip_lines.append(f"Model ID: {model_id}")
+        if pricing and pricing != "Pricing unavailable":
+            tooltip_lines.append(pricing)
+        tooltip_lines.append("Click to adjust provider & model")
+        model_tooltip.text = "\n".join(tooltip_lines)
+
+    prompt_tooltip = state.get("summary_chip_prompt_tooltip")
+    if prompt_tooltip is not None:
+        template_preview = prompt_entry.get("template", "").strip()
+        first_line = template_preview.splitlines()[0] if template_preview else "(no template preview)"
+        info = [
+            f"Preset: {prompt_entry.get('label', prompt_key)}",
+            f"Key: {prompt_key}",
+            first_line[:120],
+            "Click to edit prompts",
+        ]
+        prompt_tooltip.text = "\n".join([line for line in info if line])
+
+    output_tooltip = state.get("summary_chip_output_tooltip")
+    if output_tooltip is not None:
+        output_details = [destination]
+        if destination == "Custom":
+            output_details.append(path)
+        output_details.append("Click to adjust output settings")
+        output_tooltip.text = "\n".join(output_details)
+
+    alttext_tooltip = state.get("summary_chip_alttext_tooltip")
+    if alttext_tooltip is not None:
+        alttext_tooltip.text = f"Alt-text language: {alttext_value}\nClick to edit processing options"
 
 
-def set_status(state, message: str) -> None:
-    """Update the status bar message."""
-    if "status_var" in state:
-        state["status_var"].set(message)
+def refresh_recent_input_menu(state) -> None:
+    """Rebuild the recent input folder menu based on current history."""
+    button = state.get("recent_input_button")
+    menu = state.get("recent_input_menu")
+    if not button or not menu:
+        return
+
+    menu.delete(0, "end")
+    recent_paths = state.get("recent_input_paths") or []
+    if len(recent_paths) > RECENT_INPUT_LIMIT:
+        del recent_paths[RECENT_INPUT_LIMIT:]
+
+    if not recent_paths:
+        menu.add_command(label="No recent folders", state="disabled")
+        try:
+            button.state(["disabled"])
+        except tk.TclError:
+            pass
+        return
+
+    try:
+        button.state(["!disabled"])
+    except tk.TclError:
+        pass
+
+    for path in recent_paths:
+        menu.add_command(
+            label=path,
+            command=lambda value=path: set_input_folder(state, value, add_recent=True),
+        )
+
+
+def add_recent_input_path(state, path: str) -> None:
+    """Record a recently used input folder and update UI affordances."""
+    if not path or not os.path.isdir(path):
+        return
+
+    normalized = os.path.normpath(path)
+    recent = state.setdefault("recent_input_paths", [])
+    if normalized in recent:
+        recent.remove(normalized)
+    recent.insert(0, normalized)
+
+    if len(recent) > RECENT_INPUT_LIMIT:
+        del recent[RECENT_INPUT_LIMIT:]
+
+    refresh_recent_input_menu(state)
+
+
+def open_folder_location(state, path: str) -> None:
+    """Open a folder in the system file explorer with gentle user feedback."""
+    if not path:
+        set_status(state, "No folder to open")
+        return
+
+    folder = os.path.normpath(path)
+
+    if not os.path.isdir(folder):
+        set_status(state, "Folder path is unavailable")
+        return
+
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(folder)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder])
+        else:
+            subprocess.Popen(["xdg-open", folder])
+        set_status(state, f"Opened folder: {folder}")
+    except Exception as exc:
+        set_status(state, f"Could not open folder: {exc}")
+
+
+def set_input_folder(
+    state,
+    folder_path: str,
+    *,
+    add_recent: bool = True,
+    cleanup_temp: bool = True,
+    status_prefix: str | None = None,
+) -> int | None:
+    """Apply a folder selection to the UI and optionally record it in history."""
+    if not folder_path or not os.path.isdir(folder_path):
+        set_status(state, "Folder path is unavailable")
+        refresh_recent_input_menu(state)
+        return None
+
+    folder = os.path.normpath(folder_path)
+
+    if cleanup_temp:
+        cleanup_temp_drop_folder(state)
+
+    state["input_type"].set("Folder")
+    state["input_path"].set(folder)
+
+    recursive = state["recursive_search"].get()
+    image_count = get_image_count_in_folder(folder, recursive)
+    state["image_count"].set(f"{image_count} image(s)")
+
+    message = status_prefix or f"Ready to process {image_count} image(s)"
+    set_status(state, message)
+    _clear_monitor(state)
+    update_summary(state)
+    _clear_context(state, silent=True)
+
+    if add_recent:
+        add_recent_input_path(state, folder_path)
+    else:
+        refresh_recent_input_menu(state)
+
+    return image_count
+
+
+def format_global_stats(count: int) -> str:
+    """Return a formatted global statistics string."""
+    return f"Images processed: {count:,}"
+
+
+def update_global_stats_label(state) -> None:
+    """Update the global statistics label text if present."""
+    if "global_images_label" not in state or "global_images_count" not in state:
+        return
+    count = int(state["global_images_count"].get())
+    state["global_images_label"].set(format_global_stats(count))
+
+
+def set_status(
+    state,
+    message: str,
+    *,
+    duration_ms: int | None = None,
+    restore_message: str | None = None,
+    persist: bool | None = None,
+) -> None:
+    """Update the status bar message, optionally resetting after a delay."""
+    status_var = state.get("status_var")
+    if status_var is None:
+        return
+
+    try:
+        status_var.set(message)
+    except Exception:
+        return
+
+    if duration_ms is not None and duration_ms <= 0:
+        duration_ms = None
+
+    if persist is None:
+        persist = duration_ms is None
+
+    if persist:
+        state["status_idle_default"] = message
+
+    root = state.get("root")
+    if root is None:
+        state["_status_after_id"] = None
+        return
+
+    after_id = state.get("_status_after_id")
+    if after_id is not None:
+        try:
+            root.after_cancel(after_id)
+        except Exception:
+            pass
+        finally:
+            state["_status_after_id"] = None
+
+    if duration_ms is None:
+        return
+
+    fallback = restore_message if restore_message is not None else state.get("status_idle_default", "Ready")
+
+    def _reset_status() -> None:
+        state["_status_after_id"] = None
+        current = status_var.get()
+        if current == message:
+            try:
+                status_var.set(fallback)
+            except Exception:
+                pass
+
+    state["_status_after_id"] = root.after(duration_ms, _reset_status)
 
 
 def update_prompt_preview(state) -> None:
@@ -356,18 +575,33 @@ def refresh_prompt_choices(state) -> None:
     prompts = load_prompts()
     state["prompts"] = prompts
     state["prompt_names"] = list(prompts.keys())
+    display_map = _build_prompt_display_map(prompts)
+    state["prompt_display_map"] = display_map
+
+    def _select_prompt(key: str) -> None:
+        state["prompt_key"].set(key)
+        label_var = state.get("prompt_label_var")
+        if label_var is not None:
+            label_var.set(display_map.get(key, key))
+        update_summary(state)
+
     menu = state.get("prompt_option_menu")
     if menu:
         menu.delete(0, "end")
-        for key, entry in prompts.items():
-            label = entry.get("label", key)
-            menu.add_command(label=label, command=lambda value=key: state["prompt_key"].set(value))
+        for key, display in display_map.items():
+            menu.add_command(label=display, command=lambda value=key: _select_prompt(value))
+
     current = state["prompt_key"].get()
     if current not in prompts and prompts:
-        state["prompt_key"].set(next(iter(prompts.keys())))
-    else:
-        state["prompt_key"].set(state["prompt_key"].get())
+        current = next(iter(prompts.keys()))
+        state["prompt_key"].set(current)
+
+    label_var = state.get("prompt_label_var")
+    if label_var is not None:
+        label_var.set(display_map.get(current, current))
+
     update_prompt_preview(state)
+    update_summary(state)
 
 
 def cleanup_temp_drop_folder(state) -> None:
@@ -379,6 +613,7 @@ def cleanup_temp_drop_folder(state) -> None:
         except OSError:
             pass
     state["temp_drop_folder"] = None
+
 
 def _update_proxy_controls(state) -> None:
     """Enable or disable proxy override entry based on proxy enabled state."""
@@ -443,9 +678,38 @@ def _update_provider_status_labels(state) -> None:
 
 def append_monitor_colored(state, message: str, level: str = "info") -> None:
     """Append a colored message to the activity log."""
+    _trim_log_if_needed(state)
     formatted = f"[{level.upper()}] {message}"
     state["logs"].append((formatted, level))
     _write_monitor_line_colored(state, (formatted, level))
+
+
+def test_provider_connection(state, provider: str) -> dict:
+    """Run a provider connectivity check using the current proxy preferences."""
+    provider = provider.lower().strip()
+    key_var = state.get(f"{provider}_api_key")
+    if key_var is None:
+        raise APIError("API key field is unavailable for the chosen provider.")
+
+    api_key = key_var.get().strip()
+    if not api_key:
+        raise AuthenticationError("Enter an API key before testing the connection.")
+
+    proxy_enabled_var = state.get("proxy_enabled")
+    proxy_override_var = state.get("proxy_override")
+
+    proxy_enabled = bool(proxy_enabled_var.get()) if proxy_enabled_var is not None else True
+    proxy_override = proxy_override_var.get().strip() if proxy_override_var is not None else ""
+
+    configure_global_proxy(enabled=proxy_enabled, override=proxy_override or None, force=False)
+    proxies = get_requests_proxies(enabled=proxy_enabled, override=proxy_override or None)
+
+    if provider == "openai":
+        return check_openai_key(api_key, proxies=proxies)
+    if provider == "openrouter":
+        return check_openrouter_key(api_key, proxies=proxies)
+
+    raise APIError(f"Unknown provider '{provider}' for health check.")
 
 
 def _clear_monitor(state) -> None:
@@ -474,12 +738,65 @@ def _write_monitor_line_colored(state, log_item) -> None:
     if "log_text" not in state:
         return
 
+    if state.get("activity_filters"):
+        if not _log_item_matches_filters(log_item, state["activity_filters"]):
+            return
+
     text_widget = state["log_text"]
     text, level = log_item
 
+    if "show_timestamps" in state and state["show_timestamps"].get():
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        text = f"{timestamp} {text}"
+
     text_widget.config(state="normal")
-    text_widget.insert("end", text + "\n", level)
-    text_widget.see("end")
+    text_widget.insert("end", str(text) + "\n", level)
+
+    auto_scroll_var = state.get("log_auto_scroll")
+    if auto_scroll_var is None or auto_scroll_var.get():
+        text_widget.see("end")
+
+    text_widget.config(state="disabled")
+def _trim_log_if_needed(state) -> None:
+    """Keep the log buffer within the configured limit."""
+    max_entries = state.get("log_entry_limit", MAX_LOG_ENTRIES)
+    logs = state.get("logs")
+    if logs is None or max_entries <= 0:
+        return
+    trimmed = False
+    while len(logs) >= max_entries:
+        logs.pop(0)
+        trimmed = True
+    if trimmed:
+        refresh_log_view(state)
+
+
+def _log_item_matches_filters(log_item: tuple[str, str], filters: dict[str, bool]) -> bool:
+    """Return True if the log item should be shown for the active filters."""
+    if not filters:
+        return True
+    text, level = log_item
+    level = level.lower()
+    allowed_levels = [lvl for lvl, enabled in filters.get("levels", {}).items() if enabled]
+    if allowed_levels and level not in allowed_levels:
+        return False
+    keyword = filters.get("keyword", "").strip().lower()
+    if keyword and keyword not in text.lower():
+        return False
+    return True
+
+
+def refresh_log_view(state) -> None:
+    """Re-render the entire activity log with current filters."""
+    if "log_text" not in state:
+        return
+    text_widget = state["log_text"]
+    text_widget.config(state="normal")
+    text_widget.delete("1.0", "end")
+
+    for log_item in state.get("logs", []):
+        _write_monitor_line_colored(state, log_item)
+
     text_widget.config(state="disabled")
 
 
@@ -512,15 +829,7 @@ def _select_input(state) -> None:
     else:
         input_path = os.path.dirname(path)
 
-    cleanup_temp_drop_folder(state)
-    state["input_path"].set(input_path)
-    recursive = state["recursive_search"].get()
-    count = get_image_count_in_folder(input_path, recursive)
-    state["image_count"].set(f"{count} image(s)")
-    set_status(state, f"Ready to process {count} image(s)")
-    _clear_monitor(state)
-    update_summary(state)
-    _clear_context(state, silent=True)
+    set_input_folder(state, input_path)
 
 
 def _select_output_folder(state) -> None:
@@ -560,30 +869,10 @@ def _reset_global_stats(state) -> None:
     """Reset global statistics."""
     if "global_images_count" in state:
         state["global_images_count"].set(0)
+        update_global_stats_label(state)
         append_monitor_colored(state, "Global statistics reset", "warn")
     else:
         append_monitor_colored(state, "No statistics to reset", "warn")
-
-
-def append_monitor_colored(state, message: str, level: str = "info") -> None:
-    """Append a colored message to the activity log."""
-    formatted = f"[{level.upper()}] {message}"
-    state["logs"].append((formatted, level))
-    _write_monitor_line_colored(state, (formatted, level))
-
-
-def _write_monitor_line_colored(state, log_item) -> None:
-    """Write a colored line to the activity log."""
-    if "log_text" not in state:
-        return
-
-    text_widget = state["log_text"]
-    text, level = log_item
-
-    text_widget.config(state="normal")
-    text_widget.insert("end", text + "\n", level)
-    text_widget.see("end")
-    text_widget.config(state="disabled")
 
 
 def _update_model_pricing_display(state, provider_key: str, model_id: str, model_info: dict) -> None:
@@ -620,7 +909,7 @@ def _update_model_pricing_display(state, provider_key: str, model_id: str, model
         # Context window if available
         context_window = model_info.get("context_window")
         if context_window:
-            pricing_info.append(f"Context: {context_window:,}","tokens")
+            pricing_info.append(f"Context: {context_window:,} tokens")
 
         # Special features
         features = []
@@ -640,6 +929,7 @@ def _update_model_pricing_display(state, provider_key: str, model_id: str, model
 
     except Exception as e:
         pricing_label.config(text=f"Error loading model info: {str(e)}")
+
 
 def _sync_model_label(state, *_) -> None:
     provider_key = state["llm_provider"].get()
@@ -704,6 +994,7 @@ def update_api_key_validation_display(provider: str, api_key: str, status_label:
     else:
         status_label.config(text=f"⚠ {message}", foreground="#d97706")
 
+
 def _refresh_model_choices(state) -> None:
     provider_key = state["llm_provider"].get()
     models = get_models_for_provider(provider_key)
@@ -727,6 +1018,7 @@ def _refresh_model_choices(state) -> None:
         current_model = fallback
 
     state["model_label_var"].set(models[current_model].get("label", current_model))
+
 
 def _refresh_provider_sections(state) -> None:
     provider_key = state["llm_provider"].get()
@@ -761,6 +1053,7 @@ def _refresh_provider_sections(state) -> None:
         else:
             refresh_button.grid_remove()
 
+
 def _update_api_status_labels(state) -> None:
     openai_key = state["openai_api_key"].get()
     update_api_key_validation_display("openai", openai_key, state["openai_status_label"])
@@ -768,9 +1061,12 @@ def _update_api_status_labels(state) -> None:
     update_api_key_validation_display("openrouter", openrouter_key, state["openrouter_status_label"])
     _refresh_provider_sections(state)
 
+
 def initialize_provider_ui(state) -> None:
     """Initialize the provider UI state and event handlers."""
-    state["llm_provider"].trace_add("write", lambda *_: (_refresh_provider_sections(state), _refresh_model_choices(state)))
+    state["llm_provider"].trace_add(
+        "write", lambda *_: (_refresh_provider_sections(state), _refresh_model_choices(state))
+    )
     state["llm_model"].trace_add("write", lambda *_: _sync_model_label(state))
     state["openai_api_key"].trace_add("write", lambda *_: _update_api_status_labels(state))
     state["openrouter_api_key"].trace_add("write", lambda *_: _update_api_status_labels(state))
@@ -817,9 +1113,18 @@ class Tooltip:
         self.widget.bind("<Leave>", self.hide_tooltip)
 
     def show_tooltip(self, event=None):
-        x, y, _, _ = self.widget.bbox("insert")
-        x += self.widget.winfo_rootx() + 25
-        y += self.widget.winfo_rooty() + 25
+        try:
+            bbox = self.widget.bbox("insert")
+        except Exception:
+            bbox = None
+
+        if bbox:
+            x, y, _, _ = bbox
+            x += self.widget.winfo_rootx() + 25
+            y += self.widget.winfo_rooty() + 25
+        else:
+            x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
 
         self.tooltip_window = tk.Toplevel(self.widget)
         self.tooltip_window.wm_overrideredirect(True)
@@ -850,3 +1155,58 @@ class Tooltip:
 def create_tooltip(widget, text):
     """Create a tooltip for a widget."""
     return Tooltip(widget, text)
+
+
+class ScrollableFrame(ttk.Frame):
+    """Reusable scrollable frame with scoped mouse-wheel handling."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        style = ttk.Style()
+        bg_color = style.lookup("TFrame", "background")
+
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=bg_color)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda _: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
+        )
+
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        self.scrollable_frame.bind("<Enter>", self._bind_mousewheel)
+        self.scrollable_frame.bind("<Leave>", self._unbind_mousewheel)
+
+    def _on_canvas_configure(self, event):
+        self.canvas.itemconfig(self.canvas_frame, width=event.width)
+
+    def _bind_mousewheel(self, _event):
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Button-4>", self._on_mousewheel)
+        self.canvas.bind("<Button-5>", self._on_mousewheel)
+
+    def _unbind_mousewheel(self, _event):
+        self.canvas.unbind("<MouseWheel>")
+        self.canvas.unbind("<Button-4>")
+        self.canvas.unbind("<Button-5>")
+
+    def _on_mousewheel(self, event):
+        if getattr(event, "delta", 0):
+            self.canvas.yview_scroll(-int(event.delta / 120), "units")
+        elif getattr(event, "num", None) == 4:
+            self.canvas.yview_scroll(-1, "units")
+        elif getattr(event, "num", None) == 5:
+            self.canvas.yview_scroll(1, "units")
+        return "break"

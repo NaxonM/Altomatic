@@ -1,4 +1,5 @@
 import tkinter as tk
+from datetime import datetime, timezone
 from tkinter import ttk, simpledialog, messagebox
 from ...prompts import load_prompts, save_prompts
 from ...utils import slugify
@@ -42,8 +43,17 @@ def open_prompt_editor(state) -> None:
     _create_section_header(list_panel, "Available Prompts").grid(row=0, column=0, sticky="w", pady=(0, 8))
 
     search_var = tk.StringVar()
-    search_entry = ttk.Entry(list_panel, textvariable=search_var)
-    search_entry.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+    search_container = ttk.Frame(list_panel, style="Section.TFrame")
+    search_container.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+    search_container.columnconfigure(0, weight=1)
+
+    search_entry = ttk.Entry(search_container, textvariable=search_var)
+    search_entry.grid(row=0, column=0, sticky="ew")
+
+    search_results_var = tk.StringVar(value="All prompts")
+    ttk.Label(search_container, textvariable=search_results_var, style="Small.TLabel").grid(
+        row=0, column=1, sticky="e", padx=(8, 0)
+    )
 
     listbox_frame = ttk.Frame(list_panel, style="Section.TFrame")
     listbox_frame.grid(row=2, column=0, sticky="nsew")
@@ -124,6 +134,21 @@ def open_prompt_editor(state) -> None:
     template_stats = tk.StringVar(value="0 characters")
     ttk.Label(stats_frame, textvariable=template_stats, style="Small.TLabel").grid(row=0, column=0, sticky="w")
 
+    metadata_frame = ttk.Frame(stats_frame, style="Section.TFrame")
+    metadata_frame.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+    metadata_frame.columnconfigure(1, weight=1)
+
+    created_var = tk.StringVar(value="—")
+    updated_var = tk.StringVar(value="—")
+    ttk.Label(metadata_frame, text="Created:", style="Small.TLabel").grid(row=0, column=0, sticky="w")
+    ttk.Label(metadata_frame, textvariable=created_var, style="Small.TLabel").grid(
+        row=0, column=1, sticky="w", padx=(8, 0)
+    )
+    ttk.Label(metadata_frame, text="Updated:", style="Small.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
+    ttk.Label(metadata_frame, textvariable=updated_var, style="Small.TLabel").grid(
+        row=1, column=1, sticky="w", padx=(8, 0)
+    )
+
     button_bar = ttk.Frame(detail_panel, style="Section.TFrame")
     button_bar.grid(row=5, column=0, sticky="ew", pady=(12, 0))
     button_bar.columnconfigure(6, weight=1)
@@ -138,6 +163,17 @@ def open_prompt_editor(state) -> None:
         text = template_text.get("1.0", "end-1c")
         template_stats.set(f"{len(text)} characters")
 
+    def _format_timestamp(value: str) -> str:
+        if not value:
+            return "—"
+        try:
+            dt = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%b %d, %Y %H:%M")
+
     def refresh_list(select_key: str | None = None) -> None:
         if select_key is None:
             select_key = current_key.get()
@@ -146,17 +182,25 @@ def open_prompt_editor(state) -> None:
         needle = search_var.get().strip().lower()
         for key, entry in working.items():
             label = entry.get("label", key)
-            haystack = f"{label} {key}".lower()
+            template_text_value = entry.get("template", "")
+            haystack = f"{label} {key} {template_text_value}".lower()
             if needle and needle not in haystack:
                 continue
             visible_keys.append(key)
             listbox.insert("end", label)
+
+        if needle:
+            search_results_var.set(f"{len(visible_keys)} match(es)")
+        else:
+            search_results_var.set("All prompts")
 
         if not visible_keys:
             current_key.set("")
             label_var.set("")
             template_text.delete("1.0", "end")
             update_template_stats()
+            created_var.set("—")
+            updated_var.set("—")
             return
 
         if select_key not in visible_keys:
@@ -178,6 +222,8 @@ def open_prompt_editor(state) -> None:
         template_text.delete("1.0", "end")
         template_text.insert("1.0", entry.get("template", ""))
         update_template_stats()
+        created_var.set(_format_timestamp(entry.get("created_at", "")))
+        updated_var.set(_format_timestamp(entry.get("updated_at", "")))
 
     def add_prompt() -> None:
         name = simpledialog.askstring("New Prompt", "Enter a name for the new prompt:", parent=editor)
@@ -191,7 +237,13 @@ def open_prompt_editor(state) -> None:
         while key in working:
             suffix += 1
             key = f"{base_key}-{suffix}"
-        working[key] = {"label": name.strip(), "template": ""}
+        timestamp = datetime.now(timezone.utc).isoformat()
+        working[key] = {
+            "label": name.strip(),
+            "template": "",
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
         refresh_list(select_key=key)
         label_entry.focus_set()
 
@@ -206,9 +258,12 @@ def open_prompt_editor(state) -> None:
         while candidate in working:
             suffix += 1
             candidate = slugify(f"{new_label} {suffix}") or f"{key}-copy-{suffix}"
+        timestamp = datetime.now(timezone.utc).isoformat()
         working[candidate] = {
             "label": f"{base_label} (Copy)" if suffix == 1 else f"{base_label} (Copy {suffix})",
             "template": working[key].get("template", ""),
+            "created_at": timestamp,
+            "updated_at": timestamp,
         }
         refresh_list(select_key=candidate)
 
@@ -232,6 +287,7 @@ def open_prompt_editor(state) -> None:
             return
         working[key]["label"] = label_var.get().strip() or key
         working[key]["template"] = template_text.get("1.0", "end").strip()
+        working[key]["updated_at"] = datetime.now(timezone.utc).isoformat()
         save_prompts(working)
         refresh_prompt_choices(state)
         state["prompt_key"].set(key)

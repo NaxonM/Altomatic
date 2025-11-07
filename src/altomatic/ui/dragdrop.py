@@ -10,7 +10,7 @@ import shutil
 import tempfile
 
 from ..utils import get_image_count_in_folder
-from .ui_toolkit import append_monitor_colored, cleanup_temp_drop_folder
+from .ui_toolkit import append_monitor_colored, cleanup_temp_drop_folder, set_input_folder
 
 
 def configure_drag_and_drop(root, state) -> None:
@@ -26,14 +26,10 @@ def _handle_input_drop(event, state) -> None:
     for raw_path in paths_list:
         clean_path = raw_path.strip("{}")
         if os.path.isdir(clean_path):
-            cleanup_temp_drop_folder(state)
-            state["input_type"].set("Folder")
-            state["input_path"].set(clean_path)
-            count = get_image_count_in_folder(clean_path, recursive)
-            state["image_count"].set(f"{count} image(s) found.")
-            if "context_widget" in state:
-                state["context_widget"].delete("1.0", "end")
-                state["context_text"].set("")
+            count = set_input_folder(state, clean_path)
+            if count is None:
+                return
+            # get_image_count_in_folder returns plain count; set_input_folder display uses "image(s)"
             append_monitor_colored(state, f"[DRAGDROP] Folder dropped: {clean_path} ({count} images)", "info")
             return
         if os.path.isfile(clean_path):
@@ -61,11 +57,14 @@ def _handle_input_drop(event, state) -> None:
                     append_monitor_colored(state, f"[WARN] Failed to copy {image}: {exc}", "warn")
 
             state["temp_drop_folder"] = drop_folder
-            state["input_type"].set("Folder")
-            state["input_path"].set(drop_folder)
-            count = get_image_count_in_folder(drop_folder, recursive)
-            state["image_count"].set(f"{count} image(s) dropped.")
+            count = set_input_folder(state, drop_folder, add_recent=False, cleanup_temp=False)
             if "context_widget" in state:
                 state["context_widget"].delete("1.0", "end")
                 state["context_text"].set("")
-            append_monitor_colored(state, f"[DRAGDROP] {len(input_files)} files => {drop_folder}", "info")
+            if count is None:
+                count = get_image_count_in_folder(drop_folder, recursive)
+            append_monitor_colored(
+                state,
+                f"[DRAGDROP] {len(input_files)} files => {drop_folder} ({count} images)",
+                "info",
+            )

@@ -7,13 +7,12 @@ import os
 import tkinter as tk
 from tkinter import ttk
 
-if os.name == "nt":
-    DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-    DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
-    DWMWA_CAPTION_COLOR = 35
-    DWMWA_TEXT_COLOR = 36
-
 from tkinterdnd2 import TkinterDnD
+
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
+DWMWA_CAPTION_COLOR = 35
+DWMWA_TEXT_COLOR = 36
 
 
 def _hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -46,26 +45,26 @@ def _set_titlebar_mode(widget: tk.Misc, palette: dict[str, str]) -> None:
         return
     try:
         hwnd = widget.winfo_id()
-    except Exception:
+    except tk.TclError:
         return
     dark_mode = bool(_is_dark_palette(palette))
     value = ctypes.c_bool(dark_mode)
-    hr = ctypes.windll.dwmapi.DwmSetWindowAttribute(
-        hwnd,
-        DWMWA_USE_IMMERSIVE_DARK_MODE,
-        ctypes.byref(value),
-        ctypes.sizeof(value),
-    )
-    if hr != 0:
-        try:
+    try:
+        hr = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            ctypes.byref(value),
+            ctypes.sizeof(value),
+        )
+        if hr != 0:
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1,
                 ctypes.byref(value),
                 ctypes.sizeof(value),
             )
-        except Exception:
-            pass
+    except (AttributeError, ctypes.ArgumentError, OSError):
+        return
 
     if dark_mode:
         try:
@@ -83,8 +82,8 @@ def _set_titlebar_mode(widget: tk.Misc, palette: dict[str, str]) -> None:
                 ctypes.byref(ctypes.c_int(text_color)),
                 ctypes.sizeof(ctypes.c_int),
             )
-        except Exception:
-            pass
+        except (AttributeError, ctypes.ArgumentError, OSError):
+            return
 
 
 def _style_menu_widget(menu: tk.Menu, palette: dict[str, str]) -> None:
@@ -406,6 +405,7 @@ PALETTE = {
 
 
 def apply_theme_to_window(window: tk.Misc, theme_name: str) -> None:
+    """Apply palette styling to a single window and its nested menus."""
     palette = PALETTE.get(theme_name, PALETTE["Arctic Light"])
     try:
         window.configure(bg=palette["background"])
@@ -416,6 +416,7 @@ def apply_theme_to_window(window: tk.Misc, theme_name: str) -> None:
 
 
 def _style_text_widgets(widget: tk.Widget, palette: dict[str, str]) -> None:
+    """Recursively align text-oriented widgets with the active palette."""
     for child in widget.winfo_children():
         if isinstance(child, tk.Text):
             child.configure(
@@ -453,9 +454,11 @@ def _style_text_widgets(widget: tk.Widget, palette: dict[str, str]) -> None:
         elif isinstance(child, ttk.Scrollbar):
             try:
                 orientation = child.cget("orient")
-                style_name = (
-                    "Altomatic.Vertical.TScrollbar" if orientation == "vertical" else "Altomatic.Horizontal.TScrollbar"
-                )
+                scroll_styles = {
+                    "vertical": "Altomatic.Vertical.TScrollbar",
+                    "horizontal": "Altomatic.Horizontal.TScrollbar",
+                }
+                style_name = scroll_styles.get(orientation, "Altomatic.Vertical.TScrollbar")
                 child.configure(style=style_name)
             except tk.TclError:
                 pass
@@ -466,7 +469,7 @@ def _style_text_widgets(widget: tk.Widget, palette: dict[str, str]) -> None:
         _style_text_widgets(child, palette)
 
 
-def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
+def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:  # pylint: disable=too-many-locals,too-many-statements
     """Apply the modern Altomatic theme to the entire app."""
 
     palette = PALETTE.get(theme_name, PALETTE["Arctic Light"])
@@ -601,10 +604,13 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
     )
 
     # Warning style for validation feedback
-    warning_border = palette.get("warning", "#d97706")
+    warning_color = palette.get("warning", "#d97706")
+    warning_border = warning_color
+    warning_field_base = _blend(palette["surface"], warning_color, 0.05)
+    warning_field_focus = _blend(palette["surface"], warning_color, 0.1)
     style.configure(
         "Warning.TEntry",
-        fieldbackground=_blend(palette["surface"], palette.get("warning", "#d97706"), 0.05),
+        fieldbackground=warning_field_base,
         background=palette["surface"],
         foreground=palette["foreground"],
         insertcolor=palette["foreground"],
@@ -616,7 +622,7 @@ def apply_theme(root: TkinterDnD.Tk, theme_name: str) -> None:
     style.map(
         "Warning.TEntry",
         bordercolor=[("focus", warning_border)],
-        fieldbackground=[("focus", _blend(palette["surface"], palette.get("warning", "#d97706"), 0.1))],
+        fieldbackground=[("focus", warning_field_focus)],
     )
 
     style.configure(

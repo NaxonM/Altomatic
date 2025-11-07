@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from tkinter import font as tkfont
 
 from ..models import (
     AVAILABLE_PROVIDERS,
@@ -21,8 +22,8 @@ from .themes import apply_theme
 from ._shared import _create_section_header
 from .dialogs.about import show_about
 from .dialogs.settings import open_settings_dialog
+from .dialogs.prompt_editor import open_prompt_editor
 from .ui_toolkit import (
-    AnimatedLabel,
     PlaceholderEntry,
     update_summary,
     update_model_pricing,
@@ -31,7 +32,110 @@ from .ui_toolkit import (
     _update_provider_status_labels,
     _format_proxy_mapping,
     _select_input,
+    update_global_stats_label,
+    refresh_recent_input_menu,
+    open_folder_location,
+    create_tooltip,
 )
+
+
+class _StatusMarquee:
+    """Animate long status messages without shifting adjacent controls."""
+
+    def __init__(self, root: tk.Misc, source_var: tk.StringVar, label: ttk.Label) -> None:
+        self._root = root
+        self._source_var = source_var
+        self._label = label
+        self._display_var = tk.StringVar(value=source_var.get())
+        self._label.configure(textvariable=self._display_var, anchor="w")
+        self._font = self._resolve_font()
+        self._marquee_text: str = ""
+        self._scroll_text: str = ""
+        self._offset = 0
+        self._after_id: str | None = None
+        self._label_width = 0
+
+        source_var.trace_add("write", self._on_source_change)
+        self._label.bind("<Configure>", self._on_label_configure)
+        self._apply_text(source_var.get())
+
+    def _resolve_font(self) -> tkfont.Font:
+        name = self._label.cget("font")
+        try:
+            return tkfont.nametofont(name)
+        except Exception:
+            return tkfont.nametofont("TkDefaultFont")
+
+    def _on_source_change(self, *_args: object) -> None:
+        self._apply_text(self._source_var.get())
+
+    def _on_label_configure(self, _event: tk.Event) -> None:  # type: ignore[override]
+        self._font = self._resolve_font()
+        width = self._label.winfo_width()
+        if width != self._label_width:
+            self._label_width = width
+            self._evaluate()
+
+    def _apply_text(self, text: str) -> None:
+        self._marquee_text = text or ""
+        self._scroll_text = ""
+        self._offset = 0
+        self._evaluate()
+
+    def _evaluate(self) -> None:
+        self._stop_animation()
+        if not self._marquee_text:
+            self._display_var.set("")
+            return
+
+        if self._label_width <= 1:
+            self._root.after(60, self._evaluate)
+            return
+
+        text_width = self._font.measure(self._marquee_text)
+        if text_width <= self._label_width:
+            self._display_var.set(self._marquee_text)
+            return
+
+        gap = "   "
+        self._scroll_text = f"{self._marquee_text}{gap}"
+        self._animate()
+
+    def _animate(self) -> None:
+        if not self._scroll_text:
+            return
+        if self._label_width <= 1:
+            self._after_id = self._root.after(80, self._animate)
+            return
+
+        slice_text = self._build_slice()
+        self._display_var.set(slice_text)
+        self._offset = (self._offset + 1) % len(self._scroll_text)
+        self._after_id = self._root.after(120, self._animate)
+
+    def _build_slice(self) -> str:
+        length = len(self._scroll_text)
+        if length == 0:
+            return ""
+
+        chars: list[str] = []
+        width = 0
+        idx = self._offset
+        limit = length * 2  # prevent runaway loops if measurement misbehaves
+        while width < self._label_width and limit > 0:
+            chars.append(self._scroll_text[idx % length])
+            width = self._font.measure("".join(chars))
+            idx += 1
+            limit -= 1
+        return "".join(chars)
+
+    def _stop_animation(self) -> None:
+        if self._after_id is not None:
+            try:
+                self._root.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
 
 
 def build_ui(root, user_config):
@@ -54,30 +158,90 @@ def build_ui(root, user_config):
     menu_frame.grid(row=0, column=1, sticky="e")
 
     menubar = tk.Menu(root, tearoff=False)
-    root.config(menu="")
+    root.config(menu=menubar)
 
-    def _popup_menu(items, event):
-        menu = tk.Menu(menu_frame, tearoff=False)
-        for label, command in items:
-            menu.add_command(label=label, command=command)
+    file_menu_items = [
+        ("Settings", lambda: open_settings_dialog(state), "Ctrl+,"),
+        ("Exit", root.destroy, "Alt+F4"),
+    ]
+    help_menu_items = [
+        ("About", lambda: show_about(state), "F1"),
+    ]
+
+    def _open_popup_menu(button: tk.Widget, items, event=None):
+        menu = tk.Menu(button, tearoff=False)
+        for label, command, accelerator in items:
+            kwargs = {"label": label, "command": command}
+            if accelerator:
+                kwargs["accelerator"] = accelerator
+            menu.add_command(**kwargs)
+        if event is not None:
+            x, y = event.x_root, event.y_root
+        else:
+            x = button.winfo_rootx()
+            y = button.winfo_rooty() + button.winfo_height()
         try:
-            menu.tk_popup(event.x_root, event.y_root)
+            menu.tk_popup(x, y)
         finally:
             menu.grab_release()
 
-    def _on_file(event):
-        _popup_menu([("Settings", lambda: open_settings_dialog(state)), ("Exit", root.destroy)], event)
+    file_button = ttk.Button(menu_frame, text="File", style="ChromeMenu.TButton", takefocus=True)
+    file_button.grid(row=0, column=0, padx=(0, 6))
+    file_button.configure(command=lambda: _open_popup_menu(file_button, file_menu_items))
+    file_button["underline"] = 0
 
-    def _on_help(event):
-        _popup_menu([("About", lambda: show_about(state))], event)
+    help_button = ttk.Button(menu_frame, text="Help", style="ChromeMenu.TButton", takefocus=True)
+    help_button.grid(row=0, column=1, padx=(0, 0))
+    help_button.configure(command=lambda: _open_popup_menu(help_button, help_menu_items))
+    help_button["underline"] = 0
 
-    file_button = ttk.Label(menu_frame, text="File", style="ChromeMenu.TLabel")
-    file_button.grid(row=0, column=0, padx=(0, 12))
-    file_button.bind("<Button-1>", _on_file)
+    def _open_file_menu_event(event):
+        _open_popup_menu(file_button, file_menu_items, event)
+        return "break"
 
-    help_button = ttk.Label(menu_frame, text="Help", style="ChromeMenu.TLabel")
-    help_button.grid(row=0, column=1)
-    help_button.bind("<Button-1>", _on_help)
+    def _open_help_menu_event(event):
+        _open_popup_menu(help_button, help_menu_items, event)
+        return "break"
+
+    file_button.bind("<Button-1>", _open_file_menu_event)
+    help_button.bind("<Button-1>", _open_help_menu_event)
+
+    def _open_file_menu_from_key(event):
+        _open_popup_menu(file_button, file_menu_items)
+        return "break"
+
+    def _open_help_menu_from_key(event):
+        _open_popup_menu(help_button, help_menu_items)
+        return "break"
+
+    file_button.bind("<KeyPress-Down>", _open_file_menu_from_key)
+    help_button.bind("<KeyPress-Down>", _open_help_menu_from_key)
+
+    def _activate_file_menu(event):
+        file_button.focus_set()
+        _open_popup_menu(file_button, file_menu_items)
+        return "break"
+
+    def _activate_help_menu(event):
+        help_button.focus_set()
+        _open_popup_menu(help_button, help_menu_items)
+        return "break"
+
+    root.bind_all("<Alt-f>", _activate_file_menu)
+    root.bind_all("<Alt-F>", _activate_file_menu)
+    root.bind_all("<Alt-h>", _activate_help_menu)
+    root.bind_all("<Alt-H>", _activate_help_menu)
+
+    def _open_settings(event=None):
+        open_settings_dialog(state)
+        return "break"
+
+    def _open_about(event=None):
+        show_about(state)
+        return "break"
+
+    root.bind_all("<Control-comma>", _open_settings)
+    root.bind_all("<F1>", _open_about)
 
     ttk.Separator(main_container, orient="horizontal").grid(row=1, column=0, sticky="ew")
 
@@ -154,7 +318,26 @@ def build_ui(root, user_config):
         "temp_drop_folder": None,
         "provider_model_map": provider_model_map,
         "_proxy_last_settings": None,
+        "auto_open_results": tk.BooleanVar(value=user_config.get("auto_open_results", False)),
+        "recent_input_paths": list(user_config.get("recent_input_paths", [])),
+        "summary_chip_model_var": tk.StringVar(value="Model"),
+        "summary_chip_prompt_var": tk.StringVar(value="Prompt"),
+        "summary_chip_output_var": tk.StringVar(value="Output"),
+        "summary_chip_alttext_var": tk.StringVar(value="Alt text"),
+        "auto_clear_input": tk.BooleanVar(value=user_config.get("auto_clear_input", False)),
+        "status_width_pixels": 360,
+        "status_height_pixels": 28,
+        "status_idle_default": "Ready",
+        "_status_after_id": None,
     }
+
+    # Backward compatibility: some processors expect include_subdirectories
+    state["include_subdirectories"] = state["recursive_search"]
+
+    state["global_images_count"] = tk.IntVar(value=user_config.get("global_images_count", 0))
+    state["global_images_label"] = tk.StringVar()
+    update_global_stats_label(state)
+    state["global_images_count"].trace_add("write", lambda *_: update_global_stats_label(state))
 
     # Proxy setup
     detected_initial = detect_system_proxies()
@@ -184,10 +367,13 @@ def build_ui(root, user_config):
     tab_configuration = ttk.Frame(notebook, padding=0)
     tab_log = ttk.Frame(notebook, padding=0)
 
-
     notebook.add(tab_workflow, text="Workflow")
     notebook.add(tab_configuration, text="Prompts & Models")
     notebook.add(tab_log, text="Activity Log")
+
+    state["tab_workflow"] = tab_workflow
+    state["tab_configuration"] = tab_configuration
+    state["tab_log"] = tab_log
 
     from .views.view_workflow import build_tab_workflow
     from .views.view_settings import build_tab_configuration
@@ -284,30 +470,185 @@ def _build_input_card(parent, state) -> None:
     )
     entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
     state["input_entry"] = entry
-    ttk.Button(input_frame, text="Browse...", command=lambda: _select_input(state), style="TButton").grid(
-        row=0, column=1
+    state["input_entry_tooltip"] = create_tooltip(
+        entry,
+        "Drop folders here or click Browse to choose where images will be read from.",
+    )
+
+    browse_button = ttk.Button(input_frame, text="Browse...", command=lambda: _select_input(state), style="TButton")
+    browse_button.grid(row=0, column=1)
+    state["browse_button"] = browse_button
+    state["browse_button_tooltip"] = create_tooltip(
+        browse_button,
+        "Open a file dialog to pick an input folder or image set.",
+    )
+
+    recent_button = ttk.Menubutton(input_frame, text="Recent folders", direction="below", style="ChromeMenu.TButton")
+    recent_button.grid(row=1, column=0, sticky="w", pady=(8, 0))
+    recent_menu = tk.Menu(recent_button, tearoff=False)
+    recent_button["menu"] = recent_menu
+    state["recent_input_button"] = recent_button
+    state["recent_input_menu"] = recent_menu
+    state["recent_button_tooltip"] = create_tooltip(
+        recent_button,
+        "Quickly reopen one of your recently processed folders.",
+    )
+
+    open_folder_button = ttk.Button(
+        input_frame,
+        text="Open folder",
+        command=lambda: open_folder_location(state, state["input_path"].get()),
+        style="Secondary.TButton",
+    )
+    open_folder_button.grid(row=1, column=1, sticky="w", pady=(8, 0))
+    state["open_folder_button"] = open_folder_button
+    state["open_folder_button_tooltip"] = create_tooltip(
+        open_folder_button,
+        "Open the currently selected input folder in your file browser.",
     )
 
     # Options row
     options_frame = ttk.Frame(input_card, style="Section.TFrame")
     options_frame.grid(row=2, column=0, sticky="ew", pady=(0, 12))
-    options_frame.columnconfigure(1, weight=1)
+    options_frame.columnconfigure(0, weight=0)
+    options_frame.columnconfigure(1, weight=0)
+    options_frame.columnconfigure(2, weight=1)
 
-    ttk.Checkbutton(options_frame, text="Include subdirectories", variable=state["recursive_search"]).grid(
-        row=0, column=0, sticky="w"
+    recursive_checkbox = ttk.Checkbutton(options_frame, text="Include subdirectories", variable=state["recursive_search"])
+    recursive_checkbox.grid(row=0, column=0, sticky="w")
+    state["recursive_checkbox"] = recursive_checkbox
+    state["recursive_checkbox_tooltip"] = create_tooltip(
+        recursive_checkbox,
+        "When enabled, Altomatic will scan nested folders for images as well.",
     )
 
-    ttk.Label(options_frame, textvariable=state["image_count"], style="Small.TLabel").grid(row=0, column=1, sticky="e")
+    auto_clear_toggle = ttk.Checkbutton(
+        options_frame,
+        text="Auto clear input after processing",
+        variable=state["auto_clear_input"],
+        style="Small.TCheckbutton",
+    )
+    auto_clear_toggle.grid(row=0, column=1, sticky="w", padx=(16, 0))
+    state["auto_clear_toggle"] = auto_clear_toggle
+    state["auto_clear_tooltip"] = create_tooltip(
+        auto_clear_toggle,
+        "When enabled, Altomatic will empty the input path once processing finishes.",
+    )
+
+    image_count_label = ttk.Label(options_frame, textvariable=state["image_count"], style="Small.TLabel")
+    image_count_label.grid(row=0, column=2, sticky="e")
+    state["image_count_label"] = image_count_label
+    state["image_count_tooltip"] = create_tooltip(
+        image_count_label,
+        "Displays how many images were detected in the selected input path.",
+    )
 
     # Summary bar with scrolling support
     summary_frame = ttk.Frame(input_card, style="Section.TFrame")
     summary_frame.grid(row=3, column=0, sticky="ew")
     summary_frame.columnconfigure(0, weight=1)
+    state["summary_container"] = summary_frame
 
-    # Create a single animated label for the summary "train"
-    summary_label = AnimatedLabel(summary_frame, style="Small.TLabel")
-    summary_label.grid(row=0, column=0, sticky="ew")
-    state["summary_label"] = summary_label
+    chips_frame = ttk.Frame(summary_frame, style="Section.TFrame")
+    chips_frame.grid(row=0, column=0, sticky="w")
+    state["summary_chips_frame"] = chips_frame
+
+    summary_chip_model = ttk.Label(
+        chips_frame,
+        textvariable=state["summary_chip_model_var"],
+        style="SummaryChip.TLabel",
+        cursor="hand2",
+    )
+    summary_chip_model.grid(row=0, column=0, padx=(0, 6))
+    state["summary_chip_model_widget"] = summary_chip_model
+    state["summary_chip_model_tooltip"] = create_tooltip(summary_chip_model, "Model details")
+
+    summary_chip_prompt = ttk.Label(
+        chips_frame,
+        textvariable=state["summary_chip_prompt_var"],
+        style="SummaryChip.TLabel",
+        cursor="hand2",
+    )
+    summary_chip_prompt.grid(row=0, column=1, padx=(0, 6))
+    state["summary_chip_prompt_widget"] = summary_chip_prompt
+    state["summary_chip_prompt_tooltip"] = create_tooltip(summary_chip_prompt, "Prompt details")
+
+    summary_chip_output = ttk.Label(
+        chips_frame,
+        textvariable=state["summary_chip_output_var"],
+        style="SummaryChip.TLabel",
+        cursor="hand2",
+    )
+    summary_chip_output.grid(row=0, column=2, padx=(0, 6))
+    state["summary_chip_output_widget"] = summary_chip_output
+    state["summary_chip_output_tooltip"] = create_tooltip(summary_chip_output, "Output details")
+
+    summary_chip_alttext = ttk.Label(
+        chips_frame,
+        textvariable=state["summary_chip_alttext_var"],
+        style="SummaryChip.TLabel",
+        cursor="hand2",
+    )
+    summary_chip_alttext.grid(row=0, column=3)
+    state["summary_chip_alttext_widget"] = summary_chip_alttext
+    state["summary_chip_alttext_tooltip"] = create_tooltip(summary_chip_alttext, "Alt-text language")
+
+    def _open_prompt_editor_quick() -> None:
+        open_prompt_editor(state)
+
+    def _focus_provider_controls() -> None:
+        pane = state.get("provider_pane")
+        if pane is not None:
+            pane.expand()
+        widget = state.get("provider_option_widget")
+        if widget is not None:
+            widget.focus_set()
+
+    def _open_provider_settings() -> None:
+        notebook = state.get("notebook")
+        tab = state.get("tab_configuration")
+        if notebook is not None and tab is not None:
+            notebook.select(tab)
+        state["root"].after(100, _focus_provider_controls)
+
+    def _open_output_settings() -> None:
+        notebook = state.get("notebook")
+        workflow_tab = state.get("tab_workflow")
+        if notebook is not None and workflow_tab is not None:
+            notebook.select(workflow_tab)
+        def _expand_output():
+            pane = state.get("output_pane")
+            if pane is not None:
+                pane.expand()
+        state["root"].after(100, _expand_output)
+
+    def _open_processing_options() -> None:
+        notebook = state.get("notebook")
+        workflow_tab = state.get("tab_workflow")
+        if notebook is not None and workflow_tab is not None:
+            notebook.select(workflow_tab)
+
+        def _expand_processing() -> None:
+            pane = state.get("processing_pane")
+            if pane is not None:
+                pane.expand()
+
+        state["root"].after(100, _expand_processing)
+
+    summary_chip_model.bind("<Button-1>", lambda _e: _open_provider_settings(), add="+")
+    summary_chip_model.bind("<Enter>", lambda _e, w=summary_chip_model: w.state(["active"]), add="+")
+    summary_chip_model.bind("<Leave>", lambda _e, w=summary_chip_model: w.state(["!active"]), add="+")
+    summary_chip_prompt.bind("<Button-1>", lambda _e: _open_prompt_editor_quick(), add="+")
+    summary_chip_prompt.bind("<Enter>", lambda _e, w=summary_chip_prompt: w.state(["active"]), add="+")
+    summary_chip_prompt.bind("<Leave>", lambda _e, w=summary_chip_prompt: w.state(["!active"]), add="+")
+    summary_chip_output.bind("<Button-1>", lambda _e: _open_output_settings(), add="+")
+    summary_chip_output.bind("<Enter>", lambda _e, w=summary_chip_output: w.state(["active"]), add="+")
+    summary_chip_output.bind("<Leave>", lambda _e, w=summary_chip_output: w.state(["!active"]), add="+")
+    summary_chip_alttext.bind("<Button-1>", lambda _e: _open_processing_options(), add="+")
+    summary_chip_alttext.bind("<Enter>", lambda _e, w=summary_chip_alttext: w.state(["active"]), add="+")
+    summary_chip_alttext.bind("<Leave>", lambda _e, w=summary_chip_alttext: w.state(["!active"]), add="+")
+
+    refresh_recent_input_menu(state)
 
 
 def _build_main_notebook(parent, state) -> ttk.Notebook:
@@ -322,33 +663,52 @@ def _build_footer(parent, state) -> None:
     """Build the footer with status bar and action buttons."""
     footer = ttk.Frame(parent, style="TFrame")
     footer.grid(row=2, column=0, sticky="ew")
+    footer.columnconfigure(0, weight=1)
     footer.columnconfigure(1, weight=1)
 
-    # Status label on the far left
-    state["status_label"] = ttk.Label(footer, textvariable=state["status_var"], style="Status.TLabel")
-    state["status_label"].grid(row=0, column=0, sticky="w", padx=(0, 16))
+    status_stack = ttk.Frame(footer, style="TFrame")
+    status_stack.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
+    status_stack.columnconfigure(0, weight=1)
 
-    # Progress bar in the middle
-    state["progress_bar"] = ttk.Progressbar(footer, mode="determinate")
-    state["progress_bar"].grid(row=0, column=1, sticky="ew")
+    status_width = state.get("status_width_pixels") or 360
+    status_height = state.get("status_height_pixels") or 28
+    status_label_frame = ttk.Frame(status_stack, style="TFrame", width=status_width, height=status_height)
+    status_label_frame.grid(row=0, column=0, sticky="w")
+    status_label_frame.grid_propagate(False)
+    status_label_frame.columnconfigure(0, weight=1)
 
-    # Action buttons and token usage on the far right
+    state["status_label"] = ttk.Label(status_label_frame, style="Status.TLabel")
+    state["status_label"].grid(row=0, column=0, sticky="ew")
+    state["status_marquee"] = _StatusMarquee(state["root"], state["status_var"], state["status_label"])
+
+    state["progress_bar"] = ttk.Progressbar(status_stack, mode="determinate")
+    state["progress_bar"].grid(row=1, column=0, sticky="ew", pady=(4, 0))
+
     actions_frame = ttk.Frame(footer, style="TFrame")
-    actions_frame.grid(row=0, column=2, sticky="e", padx=(16, 0))
+    actions_frame.grid(row=0, column=1, sticky="e")
 
     state["process_button"] = ttk.Button(actions_frame, text="Describe Images", style="Accent.TButton")
     state["process_button"].grid(row=0, column=0, sticky="e", padx=(0, 16))
+    state["process_button_tooltip"] = create_tooltip(
+        state["process_button"],
+        "Start describing the images in the selected folder using the current settings.",
+    )
 
     state["lbl_token_usage"] = ttk.Label(actions_frame, text="Tokens: 0", style="Status.TLabel")
     state["lbl_token_usage"].grid(row=0, column=1, sticky="e")
+    state["token_usage_tooltip"] = create_tooltip(
+        state["lbl_token_usage"],
+        "Shows the cumulative tokens consumed during this session.",
+    )
 
 
 def _build_menus(menubar, root, state) -> None:
     """Build the menu bar."""
     file_menu = tk.Menu(menubar, tearoff=False)
+    file_menu.add_command(label="Settings", accelerator="Ctrl+,", command=lambda: open_settings_dialog(state))
     file_menu.add_command(label="Exit", command=root.destroy)
     menubar.add_cascade(label="File", menu=file_menu)
 
     help_menu = tk.Menu(menubar, tearoff=False)
-    help_menu.add_command(label="About", command=lambda: show_about(state))
+    help_menu.add_command(label="About", accelerator="F1", command=lambda: show_about(state))
     menubar.add_cascade(label="Help", menu=help_menu)

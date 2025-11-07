@@ -1,10 +1,17 @@
 {
-  "fetched_at": 1761210463.2432005,
+  "fetched_at": 1762523520.1309707,
   "models": [
     {
-      "id": "openrouter/andromeda-alpha",
-      "label": "Andromeda Alpha (free)",
+      "id": "openrouter/polaris-alpha",
+      "label": "Polaris Alpha (free)",
       "vendor": "openrouter",
+      "input_price": 0.0,
+      "output_price": 0.0
+    },
+    {
+      "id": "nvidia/nemotron-nano-12b-v2-vl:free",
+      "label": "NVIDIA: Nemotron Nano 12B 2 VL (free)",
+      "vendor": "nvidia",
       "input_price": 0.0,
       "output_price": 0.0
     },

@@ -90,68 +90,95 @@ def process_images(state) -> None:
         ui_queue.put({"type": "progress_max", "value": len(images)})
         ui_queue.put({"type": "progress", "value": 0})
 
-        failed_items: list[tuple[str, str]] = []
+        failed_items: list[tuple[str, str, int]] = []
+
+        def _process_single_image(image_path: str, index: int, summary_handle, *, attempt: str = "primary") -> tuple[bool, str]:
+            attempt_tag = "[Retry] " if attempt == "retry" else ""
+            try:
+                ui_queue.put({"type": "log", "value": f"{attempt_tag}Analyzing {image_path}", "level": "info"})
+                result = describe_image(state, image_path)
+
+                if not result or "name" not in result or "alt" not in result:
+                    raise APIError("Invalid or empty response from the model.")
+
+                base_name = slugify(result["name"])[:100]
+                if not base_name:
+                    base_name = f"image-{index + 1}"
+
+                ext = os.path.splitext(image_path)[1].lower()
+                new_name = f"{base_name}{ext}"
+                destination = os.path.join(renamed_folder, new_name)
+                counter = 1
+                while os.path.exists(destination):
+                    destination = os.path.join(renamed_folder, f"{base_name}-{counter}{ext}")
+                    counter += 1
+
+                shutil.copy(image_path, destination)
+
+                final_name = os.path.basename(destination)
+                summary_handle.write(f"[Original: {os.path.basename(image_path)}]\n")
+                summary_handle.write(f"Name: {os.path.splitext(final_name)[0]}\n")
+                summary_handle.write(f"Alt: {result['alt']}\n\n")
+                ui_queue.put({"type": "log", "value": f"{attempt_tag}-> {final_name}", "level": "success"})
+
+                results.append(
+                    {
+                        "original_path": image_path,
+                        "original_filename": os.path.basename(image_path),
+                        "new_filename": final_name,
+                        "alt_text": result["alt"],
+                    }
+                )
+
+                return True, ""
+
+            except UnidentifiedImageError:
+                message = "Unsupported or corrupted image format."
+                ui_queue.put({"type": "log", "value": f"{attempt_tag}FAIL: {image_path} :: {message}", "level": "error"})
+                return False, message
+            except (AuthenticationError, APIError, NetworkError) as exc:
+                message = str(exc)
+                ui_queue.put({"type": "log", "value": f"{attempt_tag}FAIL: {image_path} :: {message}", "level": "error"})
+                return False, message
+            except Exception as exc:
+                message = f"An unexpected error occurred: {exc}"
+                ui_queue.put({"type": "log", "value": f"{attempt_tag}FAIL: {image_path} :: {message}", "level": "error"})
+                return False, message
 
         with open(summary_path, "w", encoding="utf-8") as summary_file:
             for index, image_path in enumerate(images):
-                try:
-                    ui_queue.put({"type": "log", "value": f"Analyzing {image_path}", "level": "info"})
-                    result = describe_image(state, image_path)
-
-                    if not result or "name" not in result or "alt" not in result:
-                        raise APIError("Invalid or empty response from the model.")
-
-                    base_name = slugify(result["name"])[:100]
-                    if not base_name:
-                        base_name = f"image-{index + 1}"
-
-                    ext = os.path.splitext(image_path)[1].lower()
-                    new_name = f"{base_name}{ext}"
-                    destination = os.path.join(renamed_folder, new_name)
-                    counter = 1
-                    while os.path.exists(destination):
-                        destination = os.path.join(renamed_folder, f"{base_name}-{counter}{ext}")
-                        counter += 1
-
-                    shutil.copy(image_path, destination)
-
-                    final_name = os.path.basename(destination)
-                    summary_file.write(f"[Original: {os.path.basename(image_path)}]\n")
-                    summary_file.write(f"Name: {os.path.splitext(final_name)[0]}\n")
-                    summary_file.write(f"Alt: {result['alt']}\n\n")
-                    ui_queue.put({"type": "log", "value": f"-> {final_name}", "level": "success"})
-
-                    results.append(
-                        {
-                            "original_path": image_path,
-                            "original_filename": os.path.basename(image_path),
-                            "new_filename": final_name,
-                            "alt_text": result["alt"],
-                        }
-                    )
-
-                except UnidentifiedImageError:
-                    exc_message = "Unsupported or corrupted image format."
-                    failed_items.append((image_path, exc_message))
-                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc_message}", "level": "error"})
-                except (AuthenticationError, APIError, NetworkError) as exc:
-                    failed_items.append((image_path, str(exc)))
-                    ui_queue.put({"type": "log", "value": f"FAIL: {image_path} :: {exc}", "level": "error"})
-                except Exception as exc:
-                    failed_items.append((image_path, str(exc)))
-                    ui_queue.put(
-                        {
-                            "type": "log",
-                            "value": f"FAIL: {image_path} :: An unexpected error occurred: {exc}",
-                            "level": "error",
-                        }
-                    )
+                success, error_message = _process_single_image(image_path, index, summary_file)
+                if not success:
+                    failed_items.append((image_path, error_message, index))
 
                 ui_queue.put({"type": "progress", "value": index + 1})
 
         if failed_items:
+            ui_queue.put(
+                {
+                    "type": "log",
+                    "value": f"Automatic retry triggered for {len(failed_items)} failed item(s)...",
+                    "level": "warn",
+                }
+            )
+
+            retry_failures: list[tuple[str, str, int]] = []
+            with open(summary_path, "a", encoding="utf-8") as summary_file:
+                for image_path, _error, original_index in failed_items:
+                    success, error_message = _process_single_image(
+                        image_path,
+                        original_index,
+                        summary_file,
+                        attempt="retry",
+                    )
+                    if not success:
+                        retry_failures.append((image_path, error_message, original_index))
+
+            failed_items = retry_failures
+
+        if failed_items:
             with open(log_path, "w", encoding="utf-8") as log_file:
-                for path, error in failed_items:
+                for path, error, _original_index in failed_items:
                     log_file.write(f"{path} :: {error}\n")
         elif os.path.exists(log_path):
             try:
@@ -160,7 +187,7 @@ def process_images(state) -> None:
                 pass
 
         if "global_images_count" in state:
-            previous = state["global_images_count"].get()
+            previous = int(state["global_images_count"].get())
             new_total = previous + len(images)
             state["global_images_count"].set(new_total)
         else:
@@ -172,14 +199,34 @@ def process_images(state) -> None:
             f"Session folder: {session_path}\n"
             f"Output file: {os.path.basename(summary_path)}\n\n"
             f"Token usage this run: {total_tokens}\n"
-            f"Total images analyzed overall: {new_total}"
+            f"Lifetime images processed: {new_total}"
         )
         ui_queue.put({"type": "log", "value": message.replace("\n", " | "), "level": "info"})
+
+        auto_clear = bool(state.get("auto_clear_input") and state["auto_clear_input"].get())
+        if auto_clear:
+            ui_queue.put({"type": "log", "value": "Input path cleared per preference.", "level": "info"})
+            ui_queue.put({"type": "status", "value": "Input cleared. Ready for a new folder."})
+            ui_queue.put({"type": "clear_input"})
 
         if state["show_results_table"].get():
             ui_queue.put({"type": "done_with_results", "value": message, "results": results})
         else:
             ui_queue.put({"type": "done", "value": message})
+
+        if failed_items:
+            ui_queue.put(
+                {
+                    "type": "retry_failed",
+                    "value": {
+                        "count": len(failed_items),
+                        "log_path": log_path,
+                    },
+                }
+            )
+
+        if state.get("auto_open_results") and state["auto_open_results"].get():
+            ui_queue.put({"type": "open_folder", "value": session_path})
 
     except Exception as exc:
         ui_queue.put(

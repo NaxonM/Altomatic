@@ -9,6 +9,8 @@ from ..ui_toolkit import (
     _save_settings,
     _reset_token_usage,
     _reset_global_stats,
+    format_global_stats,
+    update_global_stats_label,
 )
 
 
@@ -18,8 +20,13 @@ def open_settings_dialog(state) -> None:
     dialog.title("Settings")
     dialog.transient(state["root"])
     dialog.grab_set()
+    dialog.withdraw()  # avoid flashing in the default corner while positioning
     dialog.geometry("540x340")
     dialog.resizable(False, False)
+
+    _center_over_parent(dialog, state["root"])
+    dialog.deiconify()
+    dialog.focus_set()
 
     dialog.rowconfigure(0, weight=1)
     dialog.columnconfigure(0, weight=1)
@@ -52,6 +59,32 @@ def open_settings_dialog(state) -> None:
     ttk.Button(main_frame, text="Close", command=dialog.destroy).grid(row=1, column=0, sticky="e", pady=(16, 0))
 
 
+def _center_over_parent(window: tk.Toplevel, parent: tk.Misc) -> None:
+    """Position a child window at the center of its parent."""
+    try:
+        parent.update_idletasks()
+        window.update_idletasks()
+
+        parent_x = parent.winfo_rootx()
+        parent_y = parent.winfo_rooty()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+
+        win_width = window.winfo_width()
+        win_height = window.winfo_height()
+        if win_width <= 1 or win_height <= 1:
+            win_width = window.winfo_reqwidth()
+            win_height = window.winfo_reqheight()
+
+        x = parent_x + max((parent_width - win_width) // 2, 0)
+        y = parent_y + max((parent_height - win_height) // 2, 0)
+
+        window.geometry(f"+{x}+{y}")
+    except Exception:
+        # Fallback silently if positioning fails on specific platforms
+        pass
+
+
 def _build_appearance_section(parent, state) -> None:
     """Build the appearance settings section."""
     parent.columnconfigure(0, weight=1)
@@ -66,9 +99,7 @@ def _build_appearance_section(parent, state) -> None:
     theme_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
     theme_frame.columnconfigure(1, weight=1)
 
-    ttk.Label(theme_frame, text="UI Theme:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=(0, 8)
-    )
+    ttk.Label(theme_frame, text="UI Theme:", style="TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
 
     themes = list(PALETTE.keys())
     theme_var = tk.StringVar(value=state["ui_theme"].get())
@@ -86,10 +117,9 @@ def _build_appearance_section(parent, state) -> None:
     )
     theme_menu.grid(row=0, column=1, sticky="w")
 
-    _create_info_label(
-        appearance_card,
-        "Choose your preferred color theme for the interface."
-    ).grid(row=2, column=0, sticky="w", pady=(12, 0))
+    _create_info_label(appearance_card, "Choose your preferred color theme for the interface.").grid(
+        row=2, column=0, sticky="w", pady=(12, 0)
+    )
 
 
 def _build_proxy_section(parent, state) -> None:
@@ -106,20 +136,14 @@ def _build_proxy_section(parent, state) -> None:
     proxy_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
     proxy_frame.columnconfigure(0, weight=1)
 
-    ttk.Checkbutton(
-        proxy_frame,
-        text="Enable proxy",
-        variable=state["proxy_enabled"]
-    ).grid(row=0, column=0, sticky="w")
+    ttk.Checkbutton(proxy_frame, text="Enable proxy", variable=state["proxy_enabled"]).grid(row=0, column=0, sticky="w")
 
     # Proxy override entry
     override_frame = ttk.Frame(proxy_card, style="Section.TFrame")
     override_frame.grid(row=2, column=0, sticky="ew", pady=(0, 4))
     override_frame.columnconfigure(1, weight=1)
 
-    ttk.Label(override_frame, text="Proxy override:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=(0, 8)
-    )
+    ttk.Label(override_frame, text="Proxy override:", style="TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
 
     proxy_entry = ttk.Entry(override_frame, textvariable=state["proxy_override"])
     proxy_entry.grid(row=0, column=1, sticky="ew")
@@ -134,10 +158,7 @@ def _build_proxy_section(parent, state) -> None:
         row=0, column=0, sticky="w", pady=(0, 4)
     )
     detected_label = ttk.Label(
-        proxy_info_frame,
-        textvariable=state["proxy_detected_label"],
-        style="Small.TLabel",
-        justify="left"
+        proxy_info_frame, textvariable=state["proxy_detected_label"], style="Small.TLabel", justify="left"
     )
     detected_label.grid(row=1, column=0, sticky="w")
 
@@ -145,16 +166,12 @@ def _build_proxy_section(parent, state) -> None:
         row=2, column=0, sticky="w", pady=(8, 4)
     )
     effective_label = ttk.Label(
-        proxy_info_frame,
-        textvariable=state["proxy_effective_label"],
-        style="Small.TLabel",
-        justify="left"
+        proxy_info_frame, textvariable=state["proxy_effective_label"], style="Small.TLabel", justify="left"
     )
     effective_label.grid(row=3, column=0, sticky="w")
 
     _create_info_label(
-        proxy_card,
-        "Configure proxy settings for API requests. Leave override empty to use system proxy."
+        proxy_card, "Configure proxy settings for API requests. Leave override empty to use system proxy."
     ).grid(row=4, column=0, sticky="w", pady=(12, 0))
 
 
@@ -172,19 +189,21 @@ def _build_maintenance_section(parent, state) -> None:
     stats_frame.grid(row=1, column=0, sticky="ew", pady=(0, 4))
     stats_frame.columnconfigure(1, weight=1)
 
-    # Global statistics
-    global_stats_label = tk.StringVar(value="Images processed: 0")
-    state["global_images_count"] = global_stats_label
+    # Global statistics (preserve existing state if available)
+    if "global_images_count" not in state:
+        state["global_images_count"] = tk.IntVar(value=0)
+    if "global_images_label" not in state:
+        state["global_images_label"] = tk.StringVar(
+            value=format_global_stats(int(state["global_images_count"].get()))
+        )
+    else:
+        state["global_images_label"].set(format_global_stats(int(state["global_images_count"].get())))
+    update_global_stats_label(state)
+    global_stats_label = state["global_images_label"]
 
-    ttk.Label(stats_frame, text="Global Statistics:", style="TLabel").grid(
-        row=0, column=0, sticky="w", padx=(0, 8)
-    )
+    ttk.Label(stats_frame, text="Global Statistics:", style="TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
 
-    ttk.Label(
-        stats_frame,
-        textvariable=global_stats_label,
-        style="Small.TLabel"
-    ).grid(row=0, column=1, sticky="w")
+    ttk.Label(stats_frame, textvariable=global_stats_label, style="Small.TLabel").grid(row=0, column=1, sticky="w")
 
     # Reset buttons
     reset_frame = ttk.Frame(maintenance_card, style="Section.TFrame")
@@ -192,28 +211,19 @@ def _build_maintenance_section(parent, state) -> None:
     reset_frame.columnconfigure(2, weight=1)
 
     ttk.Button(
-        reset_frame,
-        text="Reset Token Usage",
-        command=lambda: _reset_token_usage(state),
-        style="Secondary.TButton"
+        reset_frame, text="Reset Token Usage", command=lambda: _reset_token_usage(state), style="Secondary.TButton"
     ).grid(row=0, column=0, sticky="w", padx=(0, 8))
 
     ttk.Button(
-        reset_frame,
-        text="Reset Statistics",
-        command=lambda: _reset_global_stats(state),
-        style="Secondary.TButton"
+        reset_frame, text="Reset Statistics", command=lambda: _reset_global_stats(state), style="Secondary.TButton"
     ).grid(row=0, column=1, sticky="w", padx=(0, 8))
 
     # Save settings button
-    ttk.Button(
-        reset_frame,
-        text="Save Settings",
-        command=lambda: _save_settings(state),
-        style="Accent.TButton"
-    ).grid(row=0, column=2, sticky="e")
+    ttk.Button(reset_frame, text="Save Settings", command=lambda: _save_settings(state), style="Accent.TButton").grid(
+        row=0, column=2, sticky="e"
+    )
 
     _create_info_label(
         maintenance_card,
-        "Reset counters and save current configuration. Settings are automatically saved when changed."
+        "Reset counters and save current configuration. Settings are automatically saved when changed.",
     ).grid(row=3, column=0, sticky="w", pady=(12, 0))

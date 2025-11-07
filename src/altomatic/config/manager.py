@@ -36,10 +36,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tesseract_path": "",
     "ocr_language": "eng",
     "ui_theme": "Arctic Light",
+    "auto_clear_input": False,
     "openai_model": DEFAULT_MODELS["openai"],
     "openrouter_model": get_default_model("openrouter"),
     "prompt_key": "default",
     "context_text": "",
+    "global_images_count": 0,
+    "recent_input_paths": [],
+    "auto_open_results": False,
 }
 
 
@@ -60,7 +64,9 @@ def _deobfuscate_api_key(ciphertext: str) -> str:
 
 def load_config() -> dict[str, Any]:
     if not os.path.exists(CONFIG_FILE):
-        return DEFAULT_CONFIG.copy()
+        default = DEFAULT_CONFIG.copy()
+        default["recent_input_paths"] = []
+        return default
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -70,6 +76,12 @@ def load_config() -> dict[str, Any]:
             config["openai_api_key"] = _deobfuscate_api_key(config["openai_api_key"])
         if config.get("openrouter_api_key"):
             config["openrouter_api_key"] = _deobfuscate_api_key(config["openrouter_api_key"])
+
+        if not isinstance(config.get("recent_input_paths"), list):
+            config["recent_input_paths"] = []
+        config["recent_input_paths"] = list(config.get("recent_input_paths", []))
+        if not isinstance(config.get("auto_clear_input"), bool):
+            config["auto_clear_input"] = DEFAULT_CONFIG.get("auto_clear_input", False)
 
         provider = config.get("llm_provider") or DEFAULT_PROVIDER
         if provider not in DEFAULT_MODELS:
@@ -105,7 +117,10 @@ def load_config() -> dict[str, Any]:
             config["ui_theme"] = legacy_themes[theme_value]
         return config
     except Exception:
-        return DEFAULT_CONFIG.copy()
+        default = DEFAULT_CONFIG.copy()
+        default["recent_input_paths"] = []
+        default["auto_clear_input"] = False
+        return default
 
 
 def save_config(state, geometry: str) -> None:
@@ -120,7 +135,11 @@ def save_config(state, geometry: str) -> None:
             plain = state["openrouter_api_key"].get()
             data["openrouter_api_key"] = _obfuscate_api_key(plain)
         else:
-            data[key] = state[key].get()
+            value = state.get(key)
+            if hasattr(value, "get"):
+                data[key] = value.get()
+            else:
+                data[key] = value
 
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as fh:

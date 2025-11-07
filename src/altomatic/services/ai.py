@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from ..models import DEFAULT_PROVIDER
 from ..prompts import get_prompt_template
 from ..services.providers.openai import OpenAIProvider
@@ -58,9 +60,31 @@ def describe_image(state, image_path: str) -> dict | None:
     try:
         processed_image = preprocess_image_for_llm(image_path)
         encoded_image = processed_image.data_url
+
+        def _bytes_to_kb(value: int) -> float:
+            return value / 1024 if value else 0.0
+
+        original_kb = _bytes_to_kb(processed_image.original_size_bytes)
+        processed_kb = _bytes_to_kb(processed_image.processed_size_bytes)
+        delta = original_kb - processed_kb
+        pct = (delta / original_kb * 100) if original_kb else 0
+        resized_note = " • resized" if processed_image.resized else ""
+        quality_note = (
+            f" • quality={processed_image.quality}" if processed_image.quality is not None else ""
+        )
+        append_monitor_colored(
+            state,
+            (
+                f"[IMAGE PREPROCESS] {os.path.basename(image_path)}: "
+                f"{original_kb:.0f} KB → {processed_kb:.0f} KB ({pct:.0f}% smaller)"
+                f" • format={processed_image.format}{quality_note}{resized_note}"
+            ),
+            "info",
+        )
     except Exception as e:
         append_monitor_colored(state, f"[IMAGE PREPROCESS] Failed to compress image: {e}", "warn")
         encoded_image = image_to_base64(image_path)
+        append_monitor_colored(state, "[IMAGE PREPROCESS] Falling back to original image payload.", "warn")
 
     prompt_parts: list[str] = [prompt_template.strip()]
     if user_context:

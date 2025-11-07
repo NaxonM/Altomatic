@@ -4,3 +4,4 @@ pillow
 openai
 flake8
 black
+ruff
